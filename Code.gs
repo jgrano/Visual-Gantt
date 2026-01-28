@@ -629,26 +629,37 @@ function detectCircularDependencies(tasks, taskMap) {
  * Gets the current configuration
  */
 function getConfig() {
-  const userProperties = PropertiesService.getUserProperties();
-  const savedConfig = userProperties.getProperty(CONFIG_KEY);
+  try {
+    const userProperties = PropertiesService.getUserProperties();
+    const savedConfig = userProperties.getProperty(CONFIG_KEY);
 
-  if (savedConfig) {
-    try {
-      return { ...DEFAULT_CONFIG, ...JSON.parse(savedConfig) };
-    } catch (e) {
-      return { ...DEFAULT_CONFIG };
+    if (savedConfig) {
+      try {
+        return { ...DEFAULT_CONFIG, ...JSON.parse(savedConfig) };
+      } catch (e) {
+        return { ...DEFAULT_CONFIG };
+      }
     }
-  }
 
-  return { ...DEFAULT_CONFIG };
+    return { ...DEFAULT_CONFIG };
+  } catch (e) {
+    // Return defaults if storage access fails (e.g., PERMISSION_DENIED)
+    Logger.log('Storage access error in getConfig: ' + e.message);
+    return { ...DEFAULT_CONFIG };
+  }
 }
 
 /**
  * Saves configuration
  */
 function saveConfig(config) {
-  const userProperties = PropertiesService.getUserProperties();
-  userProperties.setProperty(CONFIG_KEY, JSON.stringify(config));
+  try {
+    const userProperties = PropertiesService.getUserProperties();
+    userProperties.setProperty(CONFIG_KEY, JSON.stringify(config));
+  } catch (e) {
+    Logger.log('Storage access error in saveConfig: ' + e.message);
+    throw new Error('Unable to save settings. Please try re-authorizing the add-on from the Extensions menu, or make a copy of this spreadsheet.');
+  }
 }
 
 /**
@@ -1091,26 +1102,37 @@ function showAbout() {
  * Gets Jira configuration
  */
 function getJiraConfig() {
-  const userProperties = PropertiesService.getUserProperties();
-  const savedConfig = userProperties.getProperty(JIRA_CONFIG_KEY);
+  try {
+    const userProperties = PropertiesService.getUserProperties();
+    const savedConfig = userProperties.getProperty(JIRA_CONFIG_KEY);
 
-  if (savedConfig) {
-    try {
-      return { ...DEFAULT_JIRA_CONFIG, ...JSON.parse(savedConfig) };
-    } catch (e) {
-      return { ...DEFAULT_JIRA_CONFIG };
+    if (savedConfig) {
+      try {
+        return { ...DEFAULT_JIRA_CONFIG, ...JSON.parse(savedConfig) };
+      } catch (e) {
+        return { ...DEFAULT_JIRA_CONFIG };
+      }
     }
-  }
 
-  return { ...DEFAULT_JIRA_CONFIG };
+    return { ...DEFAULT_JIRA_CONFIG };
+  } catch (e) {
+    // Return defaults if storage access fails (e.g., PERMISSION_DENIED)
+    Logger.log('Storage access error in getJiraConfig: ' + e.message);
+    return { ...DEFAULT_JIRA_CONFIG };
+  }
 }
 
 /**
  * Saves Jira configuration
  */
 function saveJiraConfig(config) {
-  const userProperties = PropertiesService.getUserProperties();
-  userProperties.setProperty(JIRA_CONFIG_KEY, JSON.stringify(config));
+  try {
+    const userProperties = PropertiesService.getUserProperties();
+    userProperties.setProperty(JIRA_CONFIG_KEY, JSON.stringify(config));
+  } catch (e) {
+    Logger.log('Storage access error in saveJiraConfig: ' + e.message);
+    throw new Error('Unable to save Jira settings. Please try re-authorizing the add-on from the Extensions menu, or make a copy of this spreadsheet.');
+  }
 }
 
 /**
@@ -2019,31 +2041,42 @@ function include(filename) {
  * Gets Smartsheet configuration
  */
 function getSmartsheetConfig() {
-  const userProperties = PropertiesService.getUserProperties();
-  const savedConfig = userProperties.getProperty(SMARTSHEET_CONFIG_KEY);
+  try {
+    const userProperties = PropertiesService.getUserProperties();
+    const savedConfig = userProperties.getProperty(SMARTSHEET_CONFIG_KEY);
 
-  if (savedConfig) {
-    try {
-      const parsed = JSON.parse(savedConfig);
-      return {
-        ...DEFAULT_SMARTSHEET_CONFIG,
-        ...parsed,
-        columnMapping: { ...DEFAULT_SMARTSHEET_CONFIG.columnMapping, ...(parsed.columnMapping || {}) }
-      };
-    } catch (e) {
-      return { ...DEFAULT_SMARTSHEET_CONFIG };
+    if (savedConfig) {
+      try {
+        const parsed = JSON.parse(savedConfig);
+        return {
+          ...DEFAULT_SMARTSHEET_CONFIG,
+          ...parsed,
+          columnMapping: { ...DEFAULT_SMARTSHEET_CONFIG.columnMapping, ...(parsed.columnMapping || {}) }
+        };
+      } catch (e) {
+        return { ...DEFAULT_SMARTSHEET_CONFIG };
+      }
     }
-  }
 
-  return { ...DEFAULT_SMARTSHEET_CONFIG };
+    return { ...DEFAULT_SMARTSHEET_CONFIG };
+  } catch (e) {
+    // Return defaults if storage access fails (e.g., PERMISSION_DENIED)
+    Logger.log('Storage access error in getSmartsheetConfig: ' + e.message);
+    return { ...DEFAULT_SMARTSHEET_CONFIG };
+  }
 }
 
 /**
  * Saves Smartsheet configuration
  */
 function saveSmartsheetConfig(config) {
-  const userProperties = PropertiesService.getUserProperties();
-  userProperties.setProperty(SMARTSHEET_CONFIG_KEY, JSON.stringify(config));
+  try {
+    const userProperties = PropertiesService.getUserProperties();
+    userProperties.setProperty(SMARTSHEET_CONFIG_KEY, JSON.stringify(config));
+  } catch (e) {
+    Logger.log('Storage access error in saveSmartsheetConfig: ' + e.message);
+    throw new Error('Unable to save Smartsheet settings. Please try re-authorizing the add-on from the Extensions menu, or make a copy of this spreadsheet.');
+  }
 }
 
 /**
