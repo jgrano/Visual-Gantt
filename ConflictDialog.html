@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      padding: 20px;
+      background: #fafafa;
+      color: #333;
+    }
+    .header {
+      margin-bottom: 20px;
+    }
+    .header h2 {
+      font-size: 18px;
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 8px;
+    }
+    .header p {
+      font-size: 13px;
+      color: #5f6368;
+    }
+    .conflicts-container {
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .conflict-card {
+      background: white;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      border-left: 4px solid #FFC107;
+    }
+    .conflict-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 12px;
+    }
+    .conflict-title {
+      font-weight: 600;
+      font-size: 14px;
+      color: #333;
+    }
+    .conflict-id {
+      font-size: 12px;
+      color: #5f6368;
+      margin-top: 2px;
+    }
+    .conflict-choice {
+      display: flex;
+      gap: 8px;
+    }
+    .choice-btn {
+      padding: 6px 12px;
+      border: 1px solid #dadce0;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+      background: white;
+    }
+    .choice-btn:hover {
+      background: #f1f3f4;
+    }
+    .choice-btn.selected {
+      border-color: #4285F4;
+      background: #E8F0FE;
+      color: #4285F4;
+      font-weight: 500;
+    }
+    .choice-btn.jira {
+      border-color: #4285F4;
+    }
+    .choice-btn.jira.selected {
+      background: #4285F4;
+      color: white;
+    }
+    .choice-btn.local {
+      border-color: #34A853;
+    }
+    .choice-btn.local.selected {
+      background: #34A853;
+      color: white;
+    }
+    .diff-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    .diff-table th {
+      text-align: left;
+      padding: 8px;
+      background: #f8f9fa;
+      border-bottom: 1px solid #e8eaed;
+      color: #5f6368;
+      font-weight: 500;
+    }
+    .diff-table td {
+      padding: 8px;
+      border-bottom: 1px solid #f1f3f4;
+    }
+    .diff-table .field {
+      font-weight: 500;
+      color: #333;
+      width: 100px;
+    }
+    .diff-table .jira-value {
+      color: #4285F4;
+    }
+    .diff-table .sheet-value {
+      color: #34A853;
+    }
+    .actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 20px;
+      padding-top: 15px;
+      border-top: 1px solid #e8eaed;
+    }
+    .bulk-actions {
+      display: flex;
+      gap: 10px;
+    }
+    .btn {
+      padding: 10px 24px;
+      border: none;
+      border-radius: 4px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: #4285F4;
+      color: white;
+    }
+    .btn-primary:hover {
+      background: #3367D6;
+    }
+    .btn-secondary {
+      background: #f1f3f4;
+      color: #5f6368;
+    }
+    .btn-secondary:hover {
+      background: #e8eaed;
+    }
+    .btn-link {
+      background: none;
+      color: #4285F4;
+      padding: 10px 12px;
+    }
+    .btn-link:hover {
+      text-decoration: underline;
+    }
+    .summary {
+      background: #FFF8E1;
+      border-radius: 4px;
+      padding: 12px;
+      margin-bottom: 15px;
+      font-size: 13px;
+      color: #F57C00;
+    }
+    .status {
+      padding: 10px;
+      border-radius: 4px;
+      font-size: 13px;
+      margin-top: 15px;
+      display: none;
+    }
+    .status.success {
+      display: block;
+      background: #E8F5E9;
+      color: #2E7D32;
+    }
+    .status.error {
+      display: block;
+      background: #FFEBEE;
+      color: #C62828;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h2>Resolve Conflicts</h2>
+    <p>The following tasks have local modifications that differ from Jira. Choose which version to keep for each.</p>
+  </div>
+
+  <div class="summary" id="summary"></div>
+
+  <div class="conflicts-container" id="conflictsContainer">
+    <!-- Conflict cards will be inserted here -->
+  </div>
+
+  <div class="status" id="status"></div>
+
+  <div class="actions">
+    <div class="bulk-actions">
+      <button type="button" class="btn btn-link" onclick="selectAllJira()">Use All Jira</button>
+      <button type="button" class="btn btn-link" onclick="selectAllLocal()">Keep All Local</button>
+    </div>
+    <div>
+      <button type="button" class="btn btn-secondary" onclick="google.script.host.close()">Cancel</button>
+      <button type="button" class="btn btn-primary" onclick="applyResolutions()">Apply Changes</button>
+    </div>
+  </div>
+
+  <script>
+    // Data passed from server
+    const conflicts = <?= conflicts ?>;
+    const jiraRows = <?= jiraRowsJson ?>;
+
+    // Track user choices (default to Jira)
+    const choices = {};
+    conflicts.forEach(c => {
+      choices[c.taskId] = 'jira';
+    });
+
+    // Render conflicts on load
+    renderConflicts();
+    updateSummary();
+
+    function renderConflicts() {
+      const container = document.getElementById('conflictsContainer');
+      container.innerHTML = '';
+
+      conflicts.forEach(conflict => {
+        const card = document.createElement('div');
+        card.className = 'conflict-card';
+        card.id = 'conflict-' + conflict.taskId;
+
+        let diffsHtml = '';
+        conflict.diffs.forEach(diff => {
+          diffsHtml += `
+            <tr>
+              <td class="field">${diff.field}</td>
+              <td class="jira-value">${diff.jiraValue}</td>
+              <td class="sheet-value">${diff.sheetValue}</td>
+            </tr>
+          `;
+        });
+
+        card.innerHTML = `
+          <div class="conflict-header">
+            <div>
+              <div class="conflict-title">${escapeHtml(conflict.taskName)}</div>
+              <div class="conflict-id">${conflict.taskId} (Row ${conflict.rowIndex})</div>
+            </div>
+            <div class="conflict-choice">
+              <button class="choice-btn jira ${choices[conflict.taskId] === 'jira' ? 'selected' : ''}"
+                      onclick="setChoice('${conflict.taskId}', 'jira')">
+                Use Jira
+              </button>
+              <button class="choice-btn local ${choices[conflict.taskId] === 'local' ? 'selected' : ''}"
+                      onclick="setChoice('${conflict.taskId}', 'local')">
+                Keep Local
+              </button>
+            </div>
+          </div>
+          <table class="diff-table">
+            <thead>
+              <tr>
+                <th>Field</th>
+                <th>Jira Value</th>
+                <th>Local Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${diffsHtml}
+            </tbody>
+          </table>
+        `;
+
+        container.appendChild(card);
+      });
+    }
+
+    function setChoice(taskId, choice) {
+      choices[taskId] = choice;
+
+      // Update button styling
+      const card = document.getElementById('conflict-' + taskId);
+      card.querySelectorAll('.choice-btn').forEach(btn => {
+        btn.classList.remove('selected');
+      });
+      card.querySelector('.choice-btn.' + choice).classList.add('selected');
+
+      updateSummary();
+    }
+
+    function selectAllJira() {
+      conflicts.forEach(c => {
+        choices[c.taskId] = 'jira';
+      });
+      renderConflicts();
+      updateSummary();
+    }
+
+    function selectAllLocal() {
+      conflicts.forEach(c => {
+        choices[c.taskId] = 'local';
+      });
+      renderConflicts();
+      updateSummary();
+    }
+
+    function updateSummary() {
+      const jiraCount = Object.values(choices).filter(c => c === 'jira').length;
+      const localCount = Object.values(choices).filter(c => c === 'local').length;
+
+      const summary = document.getElementById('summary');
+      summary.textContent = `${conflicts.length} conflict(s) found: ${jiraCount} will use Jira values, ${localCount} will keep local values.`;
+    }
+
+    function applyResolutions() {
+      // Get list of task IDs where we keep local
+      const keepLocalIds = Object.entries(choices)
+        .filter(([id, choice]) => choice === 'local')
+        .map(([id, choice]) => id);
+
+      showStatus('Applying changes...', 'info');
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          showStatus(`Updated ${result.updated} tasks, inserted ${result.inserted} new tasks.`, 'success');
+          setTimeout(function() {
+            google.script.host.close();
+          }, 1500);
+        })
+        .withFailureHandler(function(error) {
+          showStatus('Error: ' + error.message, 'error');
+        })
+        .applyJiraPull(jiraRows, keepLocalIds);
+    }
+
+    function showStatus(message, type) {
+      const status = document.getElementById('status');
+      status.textContent = message;
+      status.className = 'status ' + type;
+      if (type === 'info') {
+        status.style.display = 'block';
+        status.style.background = '#E3F2FD';
+        status.style.color = '#1565C0';
+      }
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+  </script>
+</body>
+</html>

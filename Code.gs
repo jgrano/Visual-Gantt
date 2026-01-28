@@ -11,6 +11,7 @@
 // ============================================================================
 
 const CONFIG_KEY = 'visualGanttConfig';
+const JIRA_CONFIG_KEY = 'visualGanttJiraConfig';
 const DATA_SHEET_NAME = 'Project Data';
 const TIMELINE_SHEET_NAME = 'Timeline View';
 
@@ -27,8 +28,57 @@ const COLUMN_HEADERS = [
   'Parent Task',
   'Dependencies',
   'Task Type',
-  'Swimlane/Category'
+  'Swimlane/Category',
+  'Modified'  // Tracks local changes for Jira sync
 ];
+
+// Column indices (0-based) for easy reference
+const COL = {
+  TASK_ID: 0,
+  TASK_NAME: 1,
+  START_DATE: 2,
+  END_DATE: 3,
+  DURATION: 4,
+  OWNER: 5,
+  PERCENT_COMPLETE: 6,
+  PRIORITY: 7,
+  JIRA_TICKET: 8,
+  PARENT_TASK: 9,
+  DEPENDENCIES: 10,
+  TASK_TYPE: 11,
+  SWIMLANE: 12,
+  MODIFIED: 13
+};
+
+// Default Jira configuration
+const DEFAULT_JIRA_CONFIG = {
+  baseUrl: '',           // e.g., 'yourcompany.atlassian.net'
+  email: '',             // User's Atlassian email
+  apiToken: '',          // API token (stored securely)
+  pullMethod: 'jql',     // 'jql', 'project', or 'filter'
+  jqlQuery: '',          // JQL query string
+  projectKey: '',        // Project key for project method
+  filterId: '',          // Saved filter ID
+  startDateField: '',    // Custom field ID for start date (if used)
+  storyPointsField: '',  // Custom field ID for story points (optional)
+  lastSyncTime: null     // Timestamp of last sync
+};
+
+// Jira status category to percent complete mapping
+const JIRA_STATUS_MAPPING = {
+  'new': 0,
+  'indeterminate': 50,
+  'done': 100
+};
+
+// Jira priority mapping
+const JIRA_PRIORITY_MAPPING = {
+  'Highest': 'High',
+  'High': 'High',
+  'Medium': 'Medium',
+  'Low': 'Low',
+  'Lowest': 'Low'
+};
 
 const DEFAULT_CONFIG = {
   startDate: null,
@@ -81,11 +131,26 @@ const SWIMLANE_COLORS = [
  */
 function onOpen(e) {
   const ui = SpreadsheetApp.getUi();
+
+  // Create Jira submenu
+  const jiraMenu = ui.createMenu('Jira')
+    .addItem('Configure Connection', 'showJiraConfigDialog')
+    .addSeparator()
+    .addItem('Pull from Jira', 'pullFromJira')
+    .addItem('Pull Selected Rows', 'pullSelectedFromJira')
+    .addSeparator()
+    .addItem('Push to Jira', 'pushToJira')
+    .addItem('Push Selected Rows', 'pushSelectedToJira')
+    .addSeparator()
+    .addItem('View Sync Status', 'showSyncStatus');
+
   ui.createMenu('Visual Gantt')
     .addItem('Generate Timeline', 'generateTimeline')
     .addItem('Refresh Timeline', 'refreshTimeline')
     .addSeparator()
     .addItem('Configure Settings', 'showConfigDialog')
+    .addSeparator()
+    .addSubMenu(jiraMenu)
     .addSeparator()
     .addItem('Export as PNG', 'exportAsPng')
     .addItem('Export as PDF', 'exportAsPdf')
@@ -148,11 +213,18 @@ function setupDataSheet() {
   headerRange.setFontColor('#FFFFFF');
   headerRange.setHorizontalAlignment('center');
 
-  // Set column widths
-  const columnWidths = [80, 200, 100, 100, 100, 120, 80, 80, 150, 120, 150, 100, 150];
+  // Set column widths (includes Modified column)
+  const columnWidths = [80, 200, 100, 100, 100, 120, 80, 80, 150, 120, 150, 100, 150, 70];
   columnWidths.forEach((width, index) => {
     dataSheet.setColumnWidth(index + 1, width);
   });
+
+  // Add data validation for Modified column (Yes or empty)
+  const modifiedRule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(['Yes', ''], true)
+    .setAllowInvalid(true)
+    .build();
+  dataSheet.getRange('N2:N1000').setDataValidation(modifiedRule);
 
   // Add data validation for Priority column
   const priorityRule = SpreadsheetApp.newDataValidation()
@@ -240,37 +312,37 @@ function createSampleData() {
 
   const sampleData = [
     // Mechanical Engineering Tasks
-    ['MECH-001', 'Mechanical Design Phase', addDays(baseDate, 0), addDays(baseDate, 45), '', 'John Smith', 75, 'High', 'https://jira.example.com/MECH-001', '', '', 'Task', 'Mechanical'],
-    ['MECH-002', 'Enclosure CAD Design', addDays(baseDate, 0), addDays(baseDate, 14), '', 'John Smith', 100, 'High', 'https://jira.example.com/MECH-002', 'MECH-001', '', 'Task', 'Mechanical'],
-    ['MECH-003', 'Thermal Analysis', addDays(baseDate, 7), addDays(baseDate, 21), '', 'Sarah Johnson', 80, 'High', 'https://jira.example.com/MECH-003', 'MECH-001', 'MECH-002', 'Task', 'Mechanical'],
-    ['MECH-004', 'Prototype Fabrication', addDays(baseDate, 21), addDays(baseDate, 35), '', 'John Smith', 40, 'Medium', 'https://jira.example.com/MECH-004', 'MECH-001', 'MECH-003', 'Task', 'Mechanical'],
-    ['MECH-005', 'Mechanical Design Complete', addDays(baseDate, 45), addDays(baseDate, 45), '', 'John Smith', 0, 'High', 'https://jira.example.com/MECH-005', '', 'MECH-004', 'Milestone', 'Mechanical'],
+    ['MECH-001', 'Mechanical Design Phase', addDays(baseDate, 0), addDays(baseDate, 45), '', 'John Smith', 75, 'High', 'https://jira.example.com/MECH-001', '', '', 'Task', 'Mechanical', ''],
+    ['MECH-002', 'Enclosure CAD Design', addDays(baseDate, 0), addDays(baseDate, 14), '', 'John Smith', 100, 'High', 'https://jira.example.com/MECH-002', 'MECH-001', '', 'Task', 'Mechanical', ''],
+    ['MECH-003', 'Thermal Analysis', addDays(baseDate, 7), addDays(baseDate, 21), '', 'Sarah Johnson', 80, 'High', 'https://jira.example.com/MECH-003', 'MECH-001', 'MECH-002', 'Task', 'Mechanical', ''],
+    ['MECH-004', 'Prototype Fabrication', addDays(baseDate, 21), addDays(baseDate, 35), '', 'John Smith', 40, 'Medium', 'https://jira.example.com/MECH-004', 'MECH-001', 'MECH-003', 'Task', 'Mechanical', ''],
+    ['MECH-005', 'Mechanical Design Complete', addDays(baseDate, 45), addDays(baseDate, 45), '', 'John Smith', 0, 'High', 'https://jira.example.com/MECH-005', '', 'MECH-004', 'Milestone', 'Mechanical', ''],
 
     // Electrical Engineering Tasks
-    ['ELEC-001', 'Electrical Design Phase', addDays(baseDate, 5), addDays(baseDate, 50), '', 'Mike Chen', 60, 'High', 'https://jira.example.com/ELEC-001', '', '', 'Task', 'Electrical'],
-    ['ELEC-002', 'Power Stage Design', addDays(baseDate, 5), addDays(baseDate, 20), '', 'Mike Chen', 100, 'High', 'https://jira.example.com/ELEC-002', 'ELEC-001', '', 'Task', 'Electrical'],
-    ['ELEC-003', 'PCB Layout', addDays(baseDate, 15), addDays(baseDate, 30), '', 'Lisa Wong', 70, 'High', 'https://jira.example.com/ELEC-003', 'ELEC-001', 'ELEC-002', 'Task', 'Electrical'],
-    ['ELEC-004', 'EMC Pre-compliance', addDays(baseDate, 30), addDays(baseDate, 40), '', 'Mike Chen', 20, 'Medium', 'https://jira.example.com/ELEC-004', 'ELEC-001', 'ELEC-003', 'Task', 'Electrical'],
-    ['ELEC-005', 'Electrical Validation Complete', addDays(baseDate, 50), addDays(baseDate, 50), '', 'Mike Chen', 0, 'High', 'https://jira.example.com/ELEC-005', '', 'ELEC-004', 'Milestone', 'Electrical'],
+    ['ELEC-001', 'Electrical Design Phase', addDays(baseDate, 5), addDays(baseDate, 50), '', 'Mike Chen', 60, 'High', 'https://jira.example.com/ELEC-001', '', '', 'Task', 'Electrical', ''],
+    ['ELEC-002', 'Power Stage Design', addDays(baseDate, 5), addDays(baseDate, 20), '', 'Mike Chen', 100, 'High', 'https://jira.example.com/ELEC-002', 'ELEC-001', '', 'Task', 'Electrical', ''],
+    ['ELEC-003', 'PCB Layout', addDays(baseDate, 15), addDays(baseDate, 30), '', 'Lisa Wong', 70, 'High', 'https://jira.example.com/ELEC-003', 'ELEC-001', 'ELEC-002', 'Task', 'Electrical', ''],
+    ['ELEC-004', 'EMC Pre-compliance', addDays(baseDate, 30), addDays(baseDate, 40), '', 'Mike Chen', 20, 'Medium', 'https://jira.example.com/ELEC-004', 'ELEC-001', 'ELEC-003', 'Task', 'Electrical', ''],
+    ['ELEC-005', 'Electrical Validation Complete', addDays(baseDate, 50), addDays(baseDate, 50), '', 'Mike Chen', 0, 'High', 'https://jira.example.com/ELEC-005', '', 'ELEC-004', 'Milestone', 'Electrical', ''],
 
     // Firmware Development Tasks
-    ['FW-001', 'Firmware Development', addDays(baseDate, 10), addDays(baseDate, 55), '', 'Alex Rivera', 45, 'High', 'https://jira.example.com/FW-001', '', '', 'Task', 'Firmware'],
-    ['FW-002', 'CAN Protocol Implementation', addDays(baseDate, 10), addDays(baseDate, 25), '', 'Alex Rivera', 100, 'High', 'https://jira.example.com/FW-002', 'FW-001', '', 'Task', 'Firmware'],
-    ['FW-003', 'Bidirectional Control Logic', addDays(baseDate, 20), addDays(baseDate, 40), '', 'Alex Rivera', 50, 'High', 'https://jira.example.com/FW-003', 'FW-001', 'FW-002', 'Task', 'Firmware'],
-    ['FW-004', 'Safety State Machine', addDays(baseDate, 35), addDays(baseDate, 50), '', 'David Park', 15, 'High', 'https://jira.example.com/FW-004', 'FW-001', 'FW-003', 'Task', 'Firmware'],
-    ['FW-005', 'Firmware Release v1.0', addDays(baseDate, 55), addDays(baseDate, 55), '', 'Alex Rivera', 0, 'High', 'https://jira.example.com/FW-005', '', 'FW-004', 'Milestone', 'Firmware'],
+    ['FW-001', 'Firmware Development', addDays(baseDate, 10), addDays(baseDate, 55), '', 'Alex Rivera', 45, 'High', 'https://jira.example.com/FW-001', '', '', 'Task', 'Firmware', ''],
+    ['FW-002', 'CAN Protocol Implementation', addDays(baseDate, 10), addDays(baseDate, 25), '', 'Alex Rivera', 100, 'High', 'https://jira.example.com/FW-002', 'FW-001', '', 'Task', 'Firmware', ''],
+    ['FW-003', 'Bidirectional Control Logic', addDays(baseDate, 20), addDays(baseDate, 40), '', 'Alex Rivera', 50, 'High', 'https://jira.example.com/FW-003', 'FW-001', 'FW-002', 'Task', 'Firmware', ''],
+    ['FW-004', 'Safety State Machine', addDays(baseDate, 35), addDays(baseDate, 50), '', 'David Park', 15, 'High', 'https://jira.example.com/FW-004', 'FW-001', 'FW-003', 'Task', 'Firmware', ''],
+    ['FW-005', 'Firmware Release v1.0', addDays(baseDate, 55), addDays(baseDate, 55), '', 'Alex Rivera', 0, 'High', 'https://jira.example.com/FW-005', '', 'FW-004', 'Milestone', 'Firmware', ''],
 
     // Test Engineering Tasks
-    ['TEST-001', 'Test Engineering Phase', addDays(baseDate, 25), addDays(baseDate, 65), '', 'Emily Taylor', 30, 'Medium', 'https://jira.example.com/TEST-001', '', '', 'Task', 'Test'],
-    ['TEST-002', 'Test Plan Development', addDays(baseDate, 25), addDays(baseDate, 35), '', 'Emily Taylor', 100, 'Medium', 'https://jira.example.com/TEST-002', 'TEST-001', '', 'Task', 'Test'],
-    ['TEST-003', 'DVT Execution', addDays(baseDate, 40), addDays(baseDate, 55), '', 'Emily Taylor', 25, 'High', 'https://jira.example.com/TEST-003', 'TEST-001', 'TEST-002,ELEC-004', 'Task', 'Test'],
-    ['TEST-004', 'Certification Testing', addDays(baseDate, 55), addDays(baseDate, 65), '', 'Emily Taylor', 0, 'High', 'https://jira.example.com/TEST-004', 'TEST-001', 'TEST-003,FW-005', 'Task', 'Test'],
-    ['TEST-005', 'Product Certification Complete', addDays(baseDate, 65), addDays(baseDate, 65), '', 'Emily Taylor', 0, 'High', 'https://jira.example.com/TEST-005', '', 'TEST-004', 'Milestone', 'Test'],
+    ['TEST-001', 'Test Engineering Phase', addDays(baseDate, 25), addDays(baseDate, 65), '', 'Emily Taylor', 30, 'Medium', 'https://jira.example.com/TEST-001', '', '', 'Task', 'Test', ''],
+    ['TEST-002', 'Test Plan Development', addDays(baseDate, 25), addDays(baseDate, 35), '', 'Emily Taylor', 100, 'Medium', 'https://jira.example.com/TEST-002', 'TEST-001', '', 'Task', 'Test', ''],
+    ['TEST-003', 'DVT Execution', addDays(baseDate, 40), addDays(baseDate, 55), '', 'Emily Taylor', 25, 'High', 'https://jira.example.com/TEST-003', 'TEST-001', 'TEST-002,ELEC-004', 'Task', 'Test', ''],
+    ['TEST-004', 'Certification Testing', addDays(baseDate, 55), addDays(baseDate, 65), '', 'Emily Taylor', 0, 'High', 'https://jira.example.com/TEST-004', 'TEST-001', 'TEST-003,FW-005', 'Task', 'Test', ''],
+    ['TEST-005', 'Product Certification Complete', addDays(baseDate, 65), addDays(baseDate, 65), '', 'Emily Taylor', 0, 'High', 'https://jira.example.com/TEST-005', '', 'TEST-004', 'Milestone', 'Test', ''],
 
     // Program Management
-    ['PM-001', 'Customer Review - Honda', addDays(baseDate, 30), addDays(baseDate, 30), '', 'Program Manager', 0, 'High', 'https://jira.example.com/PM-001', '', 'MECH-004,ELEC-003', 'Milestone', 'Program'],
-    ['PM-002', 'Customer Review - Mazda', addDays(baseDate, 45), addDays(baseDate, 45), '', 'Program Manager', 0, 'High', 'https://jira.example.com/PM-002', '', 'FW-004', 'Milestone', 'Program'],
-    ['PM-003', 'Production Release', addDays(baseDate, 70), addDays(baseDate, 70), '', 'Program Manager', 0, 'High', 'https://jira.example.com/PM-003', '', 'TEST-005', 'Milestone', 'Program']
+    ['PM-001', 'Customer Review - Honda', addDays(baseDate, 30), addDays(baseDate, 30), '', 'Program Manager', 0, 'High', 'https://jira.example.com/PM-001', '', 'MECH-004,ELEC-003', 'Milestone', 'Program', ''],
+    ['PM-002', 'Customer Review - Mazda', addDays(baseDate, 45), addDays(baseDate, 45), '', 'Program Manager', 0, 'High', 'https://jira.example.com/PM-002', '', 'FW-004', 'Milestone', 'Program', ''],
+    ['PM-003', 'Production Release', addDays(baseDate, 70), addDays(baseDate, 70), '', 'Program Manager', 0, 'High', 'https://jira.example.com/PM-003', '', 'TEST-005', 'Milestone', 'Program', '']
   ];
 
   // Write sample data
@@ -959,6 +1031,927 @@ function showAbout() {
     'For support, please contact your administrator.',
     ui.ButtonSet.OK
   );
+}
+
+// ============================================================================
+// JIRA INTEGRATION
+// ============================================================================
+
+/**
+ * Gets Jira configuration
+ */
+function getJiraConfig() {
+  const userProperties = PropertiesService.getUserProperties();
+  const savedConfig = userProperties.getProperty(JIRA_CONFIG_KEY);
+
+  if (savedConfig) {
+    try {
+      return { ...DEFAULT_JIRA_CONFIG, ...JSON.parse(savedConfig) };
+    } catch (e) {
+      return { ...DEFAULT_JIRA_CONFIG };
+    }
+  }
+
+  return { ...DEFAULT_JIRA_CONFIG };
+}
+
+/**
+ * Saves Jira configuration
+ */
+function saveJiraConfig(config) {
+  const userProperties = PropertiesService.getUserProperties();
+  userProperties.setProperty(JIRA_CONFIG_KEY, JSON.stringify(config));
+}
+
+/**
+ * Shows Jira configuration dialog
+ */
+function showJiraConfigDialog() {
+  const html = HtmlService.createHtmlOutputFromFile('JiraConfigDialog')
+    .setWidth(550)
+    .setHeight(650)
+    .setTitle('Jira Configuration');
+
+  SpreadsheetApp.getUi().showModalDialog(html, 'Jira Configuration');
+}
+
+/**
+ * Gets Jira config for dialog
+ */
+function getJiraConfigForDialog() {
+  const config = getJiraConfig();
+  // Don't send the full API token to client, just indicate if it's set
+  return {
+    ...config,
+    apiToken: config.apiToken ? '••••••••' : ''
+  };
+}
+
+/**
+ * Saves Jira config from dialog
+ */
+function saveJiraConfigFromDialog(config) {
+  const existingConfig = getJiraConfig();
+
+  // If apiToken is the masked value, keep the existing token
+  if (config.apiToken === '••••••••') {
+    config.apiToken = existingConfig.apiToken;
+  }
+
+  saveJiraConfig(config);
+  return { success: true };
+}
+
+/**
+ * Tests Jira connection
+ */
+function testJiraConnection() {
+  const config = getJiraConfig();
+
+  if (!config.baseUrl || !config.email || !config.apiToken) {
+    return { success: false, message: 'Please configure Jira URL, email, and API token first.' };
+  }
+
+  try {
+    const response = jiraApiRequest('/rest/api/3/myself');
+    return {
+      success: true,
+      message: `Connected as ${response.displayName} (${response.emailAddress})`
+    };
+  } catch (e) {
+    return { success: false, message: 'Connection failed: ' + e.message };
+  }
+}
+
+/**
+ * Makes an authenticated request to Jira API
+ */
+function jiraApiRequest(endpoint, method, payload) {
+  const config = getJiraConfig();
+
+  if (!config.baseUrl || !config.email || !config.apiToken) {
+    throw new Error('Jira not configured. Please configure connection first.');
+  }
+
+  const baseUrl = config.baseUrl.replace(/\/$/, '');
+  const url = baseUrl.startsWith('http')
+    ? `${baseUrl}${endpoint}`
+    : `https://${baseUrl}${endpoint}`;
+
+  const options = {
+    method: method || 'GET',
+    headers: {
+      'Authorization': 'Basic ' + Utilities.base64Encode(config.email + ':' + config.apiToken),
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    },
+    muteHttpExceptions: true
+  };
+
+  if (payload) {
+    options.payload = JSON.stringify(payload);
+  }
+
+  const response = UrlFetchApp.fetch(url, options);
+  const responseCode = response.getResponseCode();
+  const responseText = response.getContentText();
+
+  if (responseCode >= 400) {
+    let errorMessage = `HTTP ${responseCode}`;
+    try {
+      const errorJson = JSON.parse(responseText);
+      errorMessage = errorJson.errorMessages?.join(', ') || errorJson.message || errorMessage;
+    } catch (e) {
+      errorMessage = responseText || errorMessage;
+    }
+    throw new Error(errorMessage);
+  }
+
+  return responseText ? JSON.parse(responseText) : null;
+}
+
+/**
+ * Fetches issues from Jira based on configured method
+ */
+function fetchJiraIssues() {
+  const config = getJiraConfig();
+  let jql = '';
+
+  switch (config.pullMethod) {
+    case 'jql':
+      jql = config.jqlQuery;
+      break;
+    case 'project':
+      jql = `project = "${config.projectKey}" ORDER BY key ASC`;
+      break;
+    case 'filter':
+      // Get filter JQL
+      const filter = jiraApiRequest(`/rest/api/3/filter/${config.filterId}`);
+      jql = filter.jql;
+      break;
+    default:
+      throw new Error('Invalid pull method configured');
+  }
+
+  if (!jql) {
+    throw new Error('No JQL query, project key, or filter ID configured');
+  }
+
+  // Fetch issues with pagination
+  const allIssues = [];
+  let startAt = 0;
+  const maxResults = 100;
+
+  // Fields to fetch
+  const fields = [
+    'key', 'summary', 'status', 'priority', 'assignee', 'duedate',
+    'issuetype', 'parent', 'issuelinks', 'labels', 'components',
+    'timeoriginalestimate', 'timespent', 'timeestimate'
+  ];
+
+  // Add custom fields if configured
+  if (config.startDateField) {
+    fields.push(config.startDateField);
+  }
+
+  do {
+    const response = jiraApiRequest(
+      `/rest/api/3/search?jql=${encodeURIComponent(jql)}&startAt=${startAt}&maxResults=${maxResults}&fields=${fields.join(',')}&expand=names`
+    );
+
+    allIssues.push(...response.issues);
+    startAt += response.issues.length;
+
+    if (startAt >= response.total) {
+      break;
+    }
+  } while (true);
+
+  return allIssues;
+}
+
+/**
+ * Converts a Jira issue to a sheet row format
+ */
+function jiraIssueToRow(issue, config) {
+  const fields = issue.fields;
+
+  // Extract key as Task ID
+  const taskId = issue.key;
+
+  // Extract name
+  const taskName = fields.summary || '';
+
+  // Extract dates
+  const startDate = config.startDateField && fields[config.startDateField]
+    ? new Date(fields[config.startDateField])
+    : null;
+  const endDate = fields.duedate ? new Date(fields.duedate) : null;
+
+  // Calculate duration
+  let duration = '';
+  if (startDate && endDate) {
+    duration = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
+  }
+
+  // Extract owner (assignee)
+  const owner = fields.assignee?.displayName || '';
+
+  // Map status to percent complete
+  const statusCategory = fields.status?.statusCategory?.key || 'new';
+  const percentComplete = JIRA_STATUS_MAPPING[statusCategory] ?? 0;
+
+  // Map priority
+  const jiraPriority = fields.priority?.name || 'Medium';
+  const priority = JIRA_PRIORITY_MAPPING[jiraPriority] || 'Medium';
+
+  // Build Jira ticket URL
+  const baseUrl = getJiraConfig().baseUrl.replace(/\/$/, '');
+  const jiraUrl = baseUrl.startsWith('http')
+    ? `${baseUrl}/browse/${taskId}`
+    : `https://${baseUrl}/browse/${taskId}`;
+
+  // Extract parent task
+  const parentTask = fields.parent?.key || '';
+
+  // Extract dependencies from issue links
+  const dependencies = [];
+  if (fields.issuelinks) {
+    fields.issuelinks.forEach(link => {
+      // "is blocked by" or "depends on" links
+      if (link.inwardIssue &&
+          (link.type.inward === 'is blocked by' ||
+           link.type.inward === 'depends on' ||
+           link.type.inward === 'is caused by')) {
+        dependencies.push(link.inwardIssue.key);
+      }
+    });
+  }
+
+  // Determine task type
+  const issueTypeName = fields.issuetype?.name || 'Task';
+  const taskType = issueTypeName.toLowerCase().includes('milestone') ? 'Milestone' : 'Task';
+
+  // Extract swimlane (use first component or first label)
+  let swimlane = 'Default';
+  if (fields.components && fields.components.length > 0) {
+    swimlane = fields.components[0].name;
+  } else if (fields.labels && fields.labels.length > 0) {
+    swimlane = fields.labels[0];
+  }
+
+  return {
+    taskId,
+    taskName,
+    startDate,
+    endDate,
+    duration,
+    owner,
+    percentComplete,
+    priority,
+    jiraUrl,
+    parentTask,
+    dependencies: dependencies.join(','),
+    taskType,
+    swimlane,
+    modified: '',  // Not modified when pulled from Jira
+    // Store original Jira data for conflict detection
+    _jiraStatus: fields.status?.name,
+    _jiraStatusCategory: statusCategory
+  };
+}
+
+/**
+ * Gets current sheet data as a map keyed by Task ID
+ */
+function getSheetDataMap() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const dataSheet = ss.getSheetByName(DATA_SHEET_NAME);
+
+  if (!dataSheet) {
+    return new Map();
+  }
+
+  const lastRow = dataSheet.getLastRow();
+  if (lastRow < 2) {
+    return new Map();
+  }
+
+  const dataRange = dataSheet.getRange(2, 1, lastRow - 1, COLUMN_HEADERS.length);
+  const data = dataRange.getValues();
+
+  const map = new Map();
+  data.forEach((row, index) => {
+    const taskId = row[COL.TASK_ID];
+    if (taskId) {
+      map.set(String(taskId).trim(), {
+        rowIndex: index + 2, // 1-based row number
+        data: row
+      });
+    }
+  });
+
+  return map;
+}
+
+/**
+ * Detects conflicts between Jira data and sheet data
+ */
+function detectConflicts(jiraRows, sheetDataMap) {
+  const conflicts = [];
+
+  jiraRows.forEach(jiraRow => {
+    const sheetEntry = sheetDataMap.get(jiraRow.taskId);
+
+    if (sheetEntry) {
+      const sheetRow = sheetEntry.data;
+      const isModified = String(sheetRow[COL.MODIFIED]).toLowerCase() === 'yes';
+
+      if (isModified) {
+        // Check for actual differences
+        const diffs = [];
+
+        // Compare dates
+        const sheetStartDate = parseDate(sheetRow[COL.START_DATE]);
+        const sheetEndDate = parseDate(sheetRow[COL.END_DATE]);
+
+        if (jiraRow.startDate && sheetStartDate &&
+            jiraRow.startDate.getTime() !== sheetStartDate.getTime()) {
+          diffs.push({
+            field: 'Start Date',
+            jiraValue: formatDateForDisplay(jiraRow.startDate),
+            sheetValue: formatDateForDisplay(sheetStartDate)
+          });
+        }
+
+        if (jiraRow.endDate && sheetEndDate &&
+            jiraRow.endDate.getTime() !== sheetEndDate.getTime()) {
+          diffs.push({
+            field: 'End Date',
+            jiraValue: formatDateForDisplay(jiraRow.endDate),
+            sheetValue: formatDateForDisplay(sheetEndDate)
+          });
+        }
+
+        // Compare owner
+        if (jiraRow.owner !== String(sheetRow[COL.OWNER]).trim()) {
+          diffs.push({
+            field: 'Owner',
+            jiraValue: jiraRow.owner || '(none)',
+            sheetValue: String(sheetRow[COL.OWNER]).trim() || '(none)'
+          });
+        }
+
+        // Compare priority
+        if (jiraRow.priority !== String(sheetRow[COL.PRIORITY]).trim()) {
+          diffs.push({
+            field: 'Priority',
+            jiraValue: jiraRow.priority,
+            sheetValue: String(sheetRow[COL.PRIORITY]).trim()
+          });
+        }
+
+        if (diffs.length > 0) {
+          conflicts.push({
+            taskId: jiraRow.taskId,
+            taskName: jiraRow.taskName,
+            rowIndex: sheetEntry.rowIndex,
+            diffs: diffs,
+            jiraData: jiraRow,
+            sheetData: sheetRow
+          });
+        }
+      }
+    }
+  });
+
+  return conflicts;
+}
+
+/**
+ * Formats a date for display
+ */
+function formatDateForDisplay(date) {
+  if (!date) return '';
+  return Utilities.formatDate(date, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+}
+
+/**
+ * Main pull function - fetches from Jira and updates sheet
+ */
+function pullFromJira() {
+  const ui = SpreadsheetApp.getUi();
+
+  try {
+    // Fetch issues from Jira
+    ui.alert('Pulling from Jira', 'Fetching issues from Jira...', ui.ButtonSet.OK);
+
+    const issues = fetchJiraIssues();
+
+    if (issues.length === 0) {
+      ui.alert('No Issues', 'No issues found matching your query.', ui.ButtonSet.OK);
+      return;
+    }
+
+    // Convert to row format
+    const config = getJiraConfig();
+    const jiraRows = issues.map(issue => jiraIssueToRow(issue, config));
+
+    // Get current sheet data
+    const sheetDataMap = getSheetDataMap();
+
+    // Detect conflicts
+    const conflicts = detectConflicts(jiraRows, sheetDataMap);
+
+    if (conflicts.length > 0) {
+      // Show conflict resolution dialog
+      showConflictDialog(jiraRows, conflicts);
+    } else {
+      // No conflicts, apply updates directly
+      applyJiraPull(jiraRows, []);
+      ui.alert('Pull Complete', `Successfully pulled ${issues.length} issues from Jira.`, ui.ButtonSet.OK);
+    }
+
+    // Update last sync time
+    config.lastSyncTime = new Date().toISOString();
+    saveJiraConfig(config);
+
+  } catch (e) {
+    ui.alert('Error', 'Failed to pull from Jira: ' + e.message, ui.ButtonSet.OK);
+  }
+}
+
+/**
+ * Shows conflict resolution dialog
+ */
+function showConflictDialog(jiraRows, conflicts) {
+  const template = HtmlService.createTemplateFromFile('ConflictDialog');
+  template.conflicts = JSON.stringify(conflicts);
+  template.jiraRowsJson = JSON.stringify(jiraRows);
+
+  const html = template.evaluate()
+    .setWidth(700)
+    .setHeight(600)
+    .setTitle('Resolve Conflicts');
+
+  SpreadsheetApp.getUi().showModalDialog(html, 'Resolve Conflicts');
+}
+
+/**
+ * Applies Jira pull with conflict resolutions
+ * @param {Array} jiraRows - All rows from Jira
+ * @param {Array} keepLocalIds - Task IDs where local changes should be kept
+ */
+function applyJiraPull(jiraRows, keepLocalIds) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let dataSheet = ss.getSheetByName(DATA_SHEET_NAME);
+
+  if (!dataSheet) {
+    setupDataSheet();
+    dataSheet = ss.getSheetByName(DATA_SHEET_NAME);
+  }
+
+  const keepLocalSet = new Set(keepLocalIds);
+  const sheetDataMap = getSheetDataMap();
+
+  // Prepare updates and inserts
+  const updates = [];
+  const inserts = [];
+
+  jiraRows.forEach(jiraRow => {
+    const sheetEntry = sheetDataMap.get(jiraRow.taskId);
+
+    if (sheetEntry) {
+      // Update existing row (unless keeping local)
+      if (!keepLocalSet.has(jiraRow.taskId)) {
+        updates.push({
+          rowIndex: sheetEntry.rowIndex,
+          data: jiraRowToSheetRow(jiraRow)
+        });
+      }
+    } else {
+      // Insert new row
+      inserts.push(jiraRowToSheetRow(jiraRow));
+    }
+  });
+
+  // Apply updates
+  updates.forEach(update => {
+    dataSheet.getRange(update.rowIndex, 1, 1, COLUMN_HEADERS.length)
+      .setValues([update.data]);
+  });
+
+  // Apply inserts
+  if (inserts.length > 0) {
+    const lastRow = dataSheet.getLastRow();
+    dataSheet.getRange(lastRow + 1, 1, inserts.length, COLUMN_HEADERS.length)
+      .setValues(inserts);
+  }
+
+  return {
+    success: true,
+    updated: updates.length,
+    inserted: inserts.length
+  };
+}
+
+/**
+ * Converts a jiraRow object to sheet row array
+ */
+function jiraRowToSheetRow(jiraRow) {
+  return [
+    jiraRow.taskId,
+    jiraRow.taskName,
+    jiraRow.startDate,
+    jiraRow.endDate,
+    jiraRow.duration,
+    jiraRow.owner,
+    jiraRow.percentComplete,
+    jiraRow.priority,
+    jiraRow.jiraUrl,
+    jiraRow.parentTask,
+    jiraRow.dependencies,
+    jiraRow.taskType,
+    jiraRow.swimlane,
+    ''  // Modified = empty (fresh from Jira)
+  ];
+}
+
+/**
+ * Pulls only selected rows from Jira
+ */
+function pullSelectedFromJira() {
+  const ui = SpreadsheetApp.getUi();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getActiveSheet();
+
+  if (sheet.getName() !== DATA_SHEET_NAME) {
+    ui.alert('Wrong Sheet', `Please select rows in the "${DATA_SHEET_NAME}" sheet.`, ui.ButtonSet.OK);
+    return;
+  }
+
+  const selection = sheet.getActiveRange();
+  const startRow = selection.getRow();
+  const numRows = selection.getNumRows();
+
+  if (startRow < 2) {
+    ui.alert('Invalid Selection', 'Please select data rows (not the header).', ui.ButtonSet.OK);
+    return;
+  }
+
+  // Get task IDs from selected rows
+  const taskIds = [];
+  for (let i = 0; i < numRows; i++) {
+    const taskId = sheet.getRange(startRow + i, 1).getValue();
+    if (taskId) {
+      taskIds.push(String(taskId).trim());
+    }
+  }
+
+  if (taskIds.length === 0) {
+    ui.alert('No Tasks', 'No task IDs found in selection.', ui.ButtonSet.OK);
+    return;
+  }
+
+  try {
+    // Build JQL for specific issues
+    const jql = `key in (${taskIds.join(',')})`;
+    const config = getJiraConfig();
+
+    // Fetch specific issues
+    const response = jiraApiRequest(
+      `/rest/api/3/search?jql=${encodeURIComponent(jql)}&maxResults=${taskIds.length}`
+    );
+
+    if (response.issues.length === 0) {
+      ui.alert('No Issues', 'Selected issues not found in Jira.', ui.ButtonSet.OK);
+      return;
+    }
+
+    const jiraRows = response.issues.map(issue => jiraIssueToRow(issue, config));
+    const sheetDataMap = getSheetDataMap();
+    const conflicts = detectConflicts(jiraRows, sheetDataMap);
+
+    if (conflicts.length > 0) {
+      showConflictDialog(jiraRows, conflicts);
+    } else {
+      applyJiraPull(jiraRows, []);
+      ui.alert('Pull Complete', `Successfully pulled ${response.issues.length} issues.`, ui.ButtonSet.OK);
+    }
+
+  } catch (e) {
+    ui.alert('Error', 'Failed to pull from Jira: ' + e.message, ui.ButtonSet.OK);
+  }
+}
+
+/**
+ * Pushes changes to Jira
+ */
+function pushToJira() {
+  const ui = SpreadsheetApp.getUi();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const dataSheet = ss.getSheetByName(DATA_SHEET_NAME);
+
+  if (!dataSheet) {
+    ui.alert('No Data', 'Data sheet not found.', ui.ButtonSet.OK);
+    return;
+  }
+
+  // Find all modified rows
+  const lastRow = dataSheet.getLastRow();
+  if (lastRow < 2) {
+    ui.alert('No Data', 'No tasks to push.', ui.ButtonSet.OK);
+    return;
+  }
+
+  const data = dataSheet.getRange(2, 1, lastRow - 1, COLUMN_HEADERS.length).getValues();
+  const modifiedRows = [];
+
+  data.forEach((row, index) => {
+    if (String(row[COL.MODIFIED]).toLowerCase() === 'yes') {
+      modifiedRows.push({
+        rowIndex: index + 2,
+        data: row
+      });
+    }
+  });
+
+  if (modifiedRows.length === 0) {
+    ui.alert('No Changes', 'No modified rows to push. Mark rows as "Yes" in the Modified column to push changes.', ui.ButtonSet.OK);
+    return;
+  }
+
+  const response = ui.alert(
+    'Push to Jira',
+    `Push ${modifiedRows.length} modified row(s) to Jira?\n\nThis will update: Due Date, Start Date (if configured), Assignee, Priority, and Status.`,
+    ui.ButtonSet.YES_NO
+  );
+
+  if (response !== ui.Button.YES) {
+    return;
+  }
+
+  const results = pushRowsToJira(modifiedRows);
+
+  // Clear modified flag for successful pushes
+  results.successful.forEach(taskId => {
+    const sheetDataMap = getSheetDataMap();
+    const entry = sheetDataMap.get(taskId);
+    if (entry) {
+      dataSheet.getRange(entry.rowIndex, COL.MODIFIED + 1).setValue('');
+    }
+  });
+
+  let message = `Successfully pushed ${results.successful.length} task(s).`;
+  if (results.failed.length > 0) {
+    message += `\n\nFailed to push ${results.failed.length} task(s):\n${results.failed.map(f => `${f.taskId}: ${f.error}`).join('\n')}`;
+  }
+
+  ui.alert('Push Complete', message, ui.ButtonSet.OK);
+}
+
+/**
+ * Pushes specific rows to Jira
+ */
+function pushRowsToJira(rows) {
+  const config = getJiraConfig();
+  const successful = [];
+  const failed = [];
+
+  rows.forEach(row => {
+    const taskId = String(row.data[COL.TASK_ID]).trim();
+
+    try {
+      const updatePayload = {
+        fields: {}
+      };
+
+      // Due date (End Date)
+      const endDate = parseDate(row.data[COL.END_DATE]);
+      if (endDate) {
+        updatePayload.fields.duedate = formatDateForJira(endDate);
+      }
+
+      // Start date (custom field)
+      if (config.startDateField) {
+        const startDate = parseDate(row.data[COL.START_DATE]);
+        if (startDate) {
+          updatePayload.fields[config.startDateField] = formatDateForJira(startDate);
+        }
+      }
+
+      // Priority
+      const priority = String(row.data[COL.PRIORITY]).trim();
+      if (priority) {
+        const jiraPriority = Object.keys(JIRA_PRIORITY_MAPPING).find(
+          k => JIRA_PRIORITY_MAPPING[k] === priority
+        ) || priority;
+        updatePayload.fields.priority = { name: jiraPriority };
+      }
+
+      // Update the issue
+      jiraApiRequest(`/rest/api/3/issue/${taskId}`, 'PUT', updatePayload);
+
+      // Handle assignee separately (different API)
+      const owner = String(row.data[COL.OWNER]).trim();
+      if (owner) {
+        try {
+          // Search for user by display name
+          const users = jiraApiRequest(`/rest/api/3/user/search?query=${encodeURIComponent(owner)}`);
+          if (users && users.length > 0) {
+            jiraApiRequest(`/rest/api/3/issue/${taskId}/assignee`, 'PUT', { accountId: users[0].accountId });
+          }
+        } catch (assigneeError) {
+          // Assignee update failed, but main update succeeded
+          console.log(`Failed to update assignee for ${taskId}: ${assigneeError.message}`);
+        }
+      }
+
+      // Handle status transition
+      const percentComplete = Number(row.data[COL.PERCENT_COMPLETE]) || 0;
+      try {
+        updateIssueStatus(taskId, percentComplete);
+      } catch (statusError) {
+        console.log(`Failed to update status for ${taskId}: ${statusError.message}`);
+      }
+
+      successful.push(taskId);
+
+    } catch (e) {
+      failed.push({ taskId, error: e.message });
+    }
+  });
+
+  return { successful, failed };
+}
+
+/**
+ * Updates issue status based on percent complete
+ */
+function updateIssueStatus(taskId, percentComplete) {
+  // Get available transitions
+  const transitionsResponse = jiraApiRequest(`/rest/api/3/issue/${taskId}/transitions`);
+  const transitions = transitionsResponse.transitions || [];
+
+  // Determine target status category
+  let targetCategory;
+  if (percentComplete === 0) {
+    targetCategory = 'new';
+  } else if (percentComplete === 100) {
+    targetCategory = 'done';
+  } else {
+    targetCategory = 'indeterminate';
+  }
+
+  // Find a transition that leads to the target category
+  const transition = transitions.find(t =>
+    t.to?.statusCategory?.key === targetCategory
+  );
+
+  if (transition) {
+    jiraApiRequest(`/rest/api/3/issue/${taskId}/transitions`, 'POST', {
+      transition: { id: transition.id }
+    });
+  }
+}
+
+/**
+ * Formats a date for Jira API
+ */
+function formatDateForJira(date) {
+  if (!date) return null;
+  return Utilities.formatDate(date, 'UTC', 'yyyy-MM-dd');
+}
+
+/**
+ * Pushes only selected rows to Jira
+ */
+function pushSelectedToJira() {
+  const ui = SpreadsheetApp.getUi();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getActiveSheet();
+
+  if (sheet.getName() !== DATA_SHEET_NAME) {
+    ui.alert('Wrong Sheet', `Please select rows in the "${DATA_SHEET_NAME}" sheet.`, ui.ButtonSet.OK);
+    return;
+  }
+
+  const selection = sheet.getActiveRange();
+  const startRow = selection.getRow();
+  const numRows = selection.getNumRows();
+
+  if (startRow < 2) {
+    ui.alert('Invalid Selection', 'Please select data rows (not the header).', ui.ButtonSet.OK);
+    return;
+  }
+
+  // Get selected rows
+  const selectedRows = [];
+  for (let i = 0; i < numRows; i++) {
+    const rowData = sheet.getRange(startRow + i, 1, 1, COLUMN_HEADERS.length).getValues()[0];
+    if (rowData[COL.TASK_ID]) {
+      selectedRows.push({
+        rowIndex: startRow + i,
+        data: rowData
+      });
+    }
+  }
+
+  if (selectedRows.length === 0) {
+    ui.alert('No Tasks', 'No tasks found in selection.', ui.ButtonSet.OK);
+    return;
+  }
+
+  const response = ui.alert(
+    'Push to Jira',
+    `Push ${selectedRows.length} selected row(s) to Jira?`,
+    ui.ButtonSet.YES_NO
+  );
+
+  if (response !== ui.Button.YES) {
+    return;
+  }
+
+  const results = pushRowsToJira(selectedRows);
+
+  // Clear modified flag for successful pushes
+  const dataSheet = ss.getSheetByName(DATA_SHEET_NAME);
+  results.successful.forEach(taskId => {
+    selectedRows.forEach(row => {
+      if (String(row.data[COL.TASK_ID]).trim() === taskId) {
+        dataSheet.getRange(row.rowIndex, COL.MODIFIED + 1).setValue('');
+      }
+    });
+  });
+
+  let message = `Successfully pushed ${results.successful.length} task(s).`;
+  if (results.failed.length > 0) {
+    message += `\n\nFailed: ${results.failed.map(f => `${f.taskId}: ${f.error}`).join('\n')}`;
+  }
+
+  ui.alert('Push Complete', message, ui.ButtonSet.OK);
+}
+
+/**
+ * Shows sync status dialog
+ */
+function showSyncStatus() {
+  const config = getJiraConfig();
+  const sheetDataMap = getSheetDataMap();
+
+  let modifiedCount = 0;
+  sheetDataMap.forEach(entry => {
+    if (String(entry.data[COL.MODIFIED]).toLowerCase() === 'yes') {
+      modifiedCount++;
+    }
+  });
+
+  const lastSync = config.lastSyncTime
+    ? new Date(config.lastSyncTime).toLocaleString()
+    : 'Never';
+
+  const ui = SpreadsheetApp.getUi();
+  ui.alert(
+    'Jira Sync Status',
+    `Connection: ${config.baseUrl || 'Not configured'}\n\n` +
+    `Last sync: ${lastSync}\n` +
+    `Total tasks in sheet: ${sheetDataMap.size}\n` +
+    `Modified (pending push): ${modifiedCount}`,
+    ui.ButtonSet.OK
+  );
+}
+
+/**
+ * Marks a row as modified when edited
+ * Can be set up as an onEdit trigger
+ */
+function markRowAsModified(e) {
+  const sheet = e.source.getActiveSheet();
+
+  if (sheet.getName() !== DATA_SHEET_NAME) {
+    return;
+  }
+
+  const range = e.range;
+  const row = range.getRow();
+
+  // Skip header row
+  if (row < 2) {
+    return;
+  }
+
+  // Skip if editing the Modified column itself
+  const col = range.getColumn();
+  if (col === COL.MODIFIED + 1) {
+    return;
+  }
+
+  // Check if this row has a Jira ticket (indicating it came from Jira)
+  const jiraTicket = sheet.getRange(row, COL.JIRA_TICKET + 1).getValue();
+  if (jiraTicket) {
+    // Mark as modified
+    sheet.getRange(row, COL.MODIFIED + 1).setValue('Yes');
+  }
 }
 
 /**
