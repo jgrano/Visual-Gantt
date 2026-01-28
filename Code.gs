@@ -696,79 +696,26 @@ function writeSettingToSheet_(key, value) {
   }
 }
 
-/**
- * Migrates settings from PropertiesService to sheet storage (if accessible)
- * Called once to transfer existing settings
- */
-function migrateSettingsToSheet_() {
-  try {
-    const userProperties = PropertiesService.getUserProperties();
-
-    // Try to read each config and migrate if it exists
-    const keys = [CONFIG_KEY, JIRA_CONFIG_KEY, SMARTSHEET_CONFIG_KEY];
-
-    for (const key of keys) {
-      try {
-        const value = userProperties.getProperty(key);
-        if (value) {
-          // Check if already in sheet
-          const existingValue = readSettingFromSheet_(key);
-          if (!existingValue) {
-            writeSettingToSheet_(key, value);
-            Logger.log('Migrated ' + key + ' to sheet storage');
-          }
-        }
-      } catch (e) {
-        // PropertiesService not accessible, skip migration
-        Logger.log('Could not migrate ' + key + ': ' + e.message);
-      }
-    }
-  } catch (e) {
-    // PropertiesService completely inaccessible, which is expected
-    Logger.log('PropertiesService not accessible for migration: ' + e.message);
-  }
-}
-
 // ============================================================================
 // CONFIGURATION
 // ============================================================================
 
 /**
  * Gets the current configuration
- * Uses sheet-based storage as primary, falls back to PropertiesService
+ * Uses sheet-based storage exclusively (no PropertiesService)
  */
 function getConfig() {
-  // Try sheet-based storage first (more reliable)
   try {
     const savedConfig = readSettingFromSheet_(CONFIG_KEY);
     if (savedConfig) {
       try {
         return { ...DEFAULT_CONFIG, ...JSON.parse(savedConfig) };
       } catch (e) {
-        // Invalid JSON in sheet, continue to fallback
+        Logger.log('Invalid JSON in config: ' + e.message);
       }
     }
   } catch (e) {
     Logger.log('Sheet storage error in getConfig: ' + e.message);
-  }
-
-  // Fallback to PropertiesService (may fail with PERMISSION_DENIED)
-  try {
-    const userProperties = PropertiesService.getUserProperties();
-    const savedConfig = userProperties.getProperty(CONFIG_KEY);
-
-    if (savedConfig) {
-      try {
-        const config = { ...DEFAULT_CONFIG, ...JSON.parse(savedConfig) };
-        // Migrate to sheet storage for future use
-        writeSettingToSheet_(CONFIG_KEY, savedConfig);
-        return config;
-      } catch (e) {
-        return { ...DEFAULT_CONFIG };
-      }
-    }
-  } catch (e) {
-    Logger.log('PropertiesService error in getConfig: ' + e.message);
   }
 
   return { ...DEFAULT_CONFIG };
@@ -776,26 +723,14 @@ function getConfig() {
 
 /**
  * Saves configuration
- * Uses sheet-based storage as primary method
+ * Uses sheet-based storage exclusively (no PropertiesService)
  */
 function saveConfig(config) {
-  const configJson = JSON.stringify(config);
-
-  // Save to sheet storage (primary)
   try {
-    writeSettingToSheet_(CONFIG_KEY, configJson);
+    writeSettingToSheet_(CONFIG_KEY, JSON.stringify(config));
   } catch (e) {
     Logger.log('Sheet storage error in saveConfig: ' + e.message);
     throw new Error('Unable to save settings: ' + e.message);
-  }
-
-  // Also try to save to PropertiesService (backup, may fail)
-  try {
-    const userProperties = PropertiesService.getUserProperties();
-    userProperties.setProperty(CONFIG_KEY, configJson);
-  } catch (e) {
-    // PropertiesService failed, but sheet storage succeeded, so don't throw
-    Logger.log('PropertiesService backup failed in saveConfig: ' + e.message);
   }
 }
 
@@ -1237,40 +1172,20 @@ function showAbout() {
 
 /**
  * Gets Jira configuration
- * Uses sheet-based storage as primary, falls back to PropertiesService
+ * Uses sheet-based storage exclusively (no PropertiesService)
  */
 function getJiraConfig() {
-  // Try sheet-based storage first (more reliable)
   try {
     const savedConfig = readSettingFromSheet_(JIRA_CONFIG_KEY);
     if (savedConfig) {
       try {
         return { ...DEFAULT_JIRA_CONFIG, ...JSON.parse(savedConfig) };
       } catch (e) {
-        // Invalid JSON in sheet, continue to fallback
+        Logger.log('Invalid JSON in Jira config: ' + e.message);
       }
     }
   } catch (e) {
     Logger.log('Sheet storage error in getJiraConfig: ' + e.message);
-  }
-
-  // Fallback to PropertiesService (may fail with PERMISSION_DENIED)
-  try {
-    const userProperties = PropertiesService.getUserProperties();
-    const savedConfig = userProperties.getProperty(JIRA_CONFIG_KEY);
-
-    if (savedConfig) {
-      try {
-        const config = { ...DEFAULT_JIRA_CONFIG, ...JSON.parse(savedConfig) };
-        // Migrate to sheet storage for future use
-        writeSettingToSheet_(JIRA_CONFIG_KEY, savedConfig);
-        return config;
-      } catch (e) {
-        return { ...DEFAULT_JIRA_CONFIG };
-      }
-    }
-  } catch (e) {
-    Logger.log('PropertiesService error in getJiraConfig: ' + e.message);
   }
 
   return { ...DEFAULT_JIRA_CONFIG };
@@ -1278,26 +1193,14 @@ function getJiraConfig() {
 
 /**
  * Saves Jira configuration
- * Uses sheet-based storage as primary method
+ * Uses sheet-based storage exclusively (no PropertiesService)
  */
 function saveJiraConfig(config) {
-  const configJson = JSON.stringify(config);
-
-  // Save to sheet storage (primary)
   try {
-    writeSettingToSheet_(JIRA_CONFIG_KEY, configJson);
+    writeSettingToSheet_(JIRA_CONFIG_KEY, JSON.stringify(config));
   } catch (e) {
     Logger.log('Sheet storage error in saveJiraConfig: ' + e.message);
     throw new Error('Unable to save Jira settings: ' + e.message);
-  }
-
-  // Also try to save to PropertiesService (backup, may fail)
-  try {
-    const userProperties = PropertiesService.getUserProperties();
-    userProperties.setProperty(JIRA_CONFIG_KEY, configJson);
-  } catch (e) {
-    // PropertiesService failed, but sheet storage succeeded, so don't throw
-    Logger.log('PropertiesService backup failed in saveJiraConfig: ' + e.message);
   }
 }
 
@@ -2205,50 +2108,25 @@ function include(filename) {
 
 /**
  * Gets Smartsheet configuration
- * Uses sheet-based storage as primary, falls back to PropertiesService
+ * Uses sheet-based storage exclusively (no PropertiesService)
  */
 function getSmartsheetConfig() {
-  // Helper function to parse and merge config
-  function parseConfig(savedConfig) {
-    const parsed = JSON.parse(savedConfig);
-    return {
-      ...DEFAULT_SMARTSHEET_CONFIG,
-      ...parsed,
-      columnMapping: { ...DEFAULT_SMARTSHEET_CONFIG.columnMapping, ...(parsed.columnMapping || {}) }
-    };
-  }
-
-  // Try sheet-based storage first (more reliable)
   try {
     const savedConfig = readSettingFromSheet_(SMARTSHEET_CONFIG_KEY);
     if (savedConfig) {
       try {
-        return parseConfig(savedConfig);
+        const parsed = JSON.parse(savedConfig);
+        return {
+          ...DEFAULT_SMARTSHEET_CONFIG,
+          ...parsed,
+          columnMapping: { ...DEFAULT_SMARTSHEET_CONFIG.columnMapping, ...(parsed.columnMapping || {}) }
+        };
       } catch (e) {
-        // Invalid JSON in sheet, continue to fallback
+        Logger.log('Invalid JSON in Smartsheet config: ' + e.message);
       }
     }
   } catch (e) {
     Logger.log('Sheet storage error in getSmartsheetConfig: ' + e.message);
-  }
-
-  // Fallback to PropertiesService (may fail with PERMISSION_DENIED)
-  try {
-    const userProperties = PropertiesService.getUserProperties();
-    const savedConfig = userProperties.getProperty(SMARTSHEET_CONFIG_KEY);
-
-    if (savedConfig) {
-      try {
-        const config = parseConfig(savedConfig);
-        // Migrate to sheet storage for future use
-        writeSettingToSheet_(SMARTSHEET_CONFIG_KEY, savedConfig);
-        return config;
-      } catch (e) {
-        return { ...DEFAULT_SMARTSHEET_CONFIG };
-      }
-    }
-  } catch (e) {
-    Logger.log('PropertiesService error in getSmartsheetConfig: ' + e.message);
   }
 
   return { ...DEFAULT_SMARTSHEET_CONFIG };
@@ -2256,26 +2134,14 @@ function getSmartsheetConfig() {
 
 /**
  * Saves Smartsheet configuration
- * Uses sheet-based storage as primary method
+ * Uses sheet-based storage exclusively (no PropertiesService)
  */
 function saveSmartsheetConfig(config) {
-  const configJson = JSON.stringify(config);
-
-  // Save to sheet storage (primary)
   try {
-    writeSettingToSheet_(SMARTSHEET_CONFIG_KEY, configJson);
+    writeSettingToSheet_(SMARTSHEET_CONFIG_KEY, JSON.stringify(config));
   } catch (e) {
     Logger.log('Sheet storage error in saveSmartsheetConfig: ' + e.message);
     throw new Error('Unable to save Smartsheet settings: ' + e.message);
-  }
-
-  // Also try to save to PropertiesService (backup, may fail)
-  try {
-    const userProperties = PropertiesService.getUserProperties();
-    userProperties.setProperty(SMARTSHEET_CONFIG_KEY, configJson);
-  } catch (e) {
-    // PropertiesService failed, but sheet storage succeeded, so don't throw
-    Logger.log('PropertiesService backup failed in saveSmartsheetConfig: ' + e.message);
   }
 }
 
