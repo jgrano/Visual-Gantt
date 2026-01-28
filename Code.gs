@@ -158,6 +158,75 @@ const SWIMLANE_COLORS = [
 ];
 
 // ============================================================================
+// HIDDEN SHEET STORAGE (Alternative to PropertiesService)
+// ============================================================================
+
+const CONFIG_SHEET_NAME = '_VisualGanttConfig';
+
+/**
+ * Gets or creates the hidden config sheet
+ */
+function getConfigSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let configSheet = ss.getSheetByName(CONFIG_SHEET_NAME);
+
+  if (!configSheet) {
+    configSheet = ss.insertSheet(CONFIG_SHEET_NAME);
+    // Hide the sheet
+    configSheet.hideSheet();
+    // Set up header row
+    configSheet.getRange('A1:B1').setValues([['Key', 'Value']]);
+  }
+
+  return configSheet;
+}
+
+/**
+ * Gets a value from the hidden config sheet
+ */
+function getSheetProperty(key) {
+  try {
+    const configSheet = getConfigSheet();
+    const data = configSheet.getDataRange().getValues();
+
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === key) {
+        return data[i][1];
+      }
+    }
+    return null;
+  } catch (e) {
+    Logger.log('Error reading sheet property: ' + e.message);
+    return null;
+  }
+}
+
+/**
+ * Sets a value in the hidden config sheet
+ */
+function setSheetProperty(key, value) {
+  try {
+    const configSheet = getConfigSheet();
+    const data = configSheet.getDataRange().getValues();
+
+    // Look for existing key
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === key) {
+        configSheet.getRange(i + 1, 2).setValue(value);
+        return;
+      }
+    }
+
+    // Key not found, append new row
+    const lastRow = configSheet.getLastRow();
+    configSheet.getRange(lastRow + 1, 1, 1, 2).setValues([[key, value]]);
+  } catch (e) {
+    Logger.log('Error writing sheet property: ' + e.message);
+    throw new Error('Unable to save settings: ' + e.message);
+  }
+}
+
+// ============================================================================
 // MENU & TRIGGERS
 // ============================================================================
 
@@ -627,11 +696,11 @@ function detectCircularDependencies(tasks, taskMap) {
 
 /**
  * Gets the current configuration
+ * Uses hidden sheet storage instead of PropertiesService to avoid permission issues
  */
 function getConfig() {
   try {
-    const userProperties = PropertiesService.getUserProperties();
-    const savedConfig = userProperties.getProperty(CONFIG_KEY);
+    const savedConfig = getSheetProperty(CONFIG_KEY);
 
     if (savedConfig) {
       try {
@@ -643,7 +712,6 @@ function getConfig() {
 
     return { ...DEFAULT_CONFIG };
   } catch (e) {
-    // Return defaults if storage access fails (e.g., PERMISSION_DENIED)
     Logger.log('Storage access error in getConfig: ' + e.message);
     return { ...DEFAULT_CONFIG };
   }
@@ -651,15 +719,10 @@ function getConfig() {
 
 /**
  * Saves configuration
+ * Uses hidden sheet storage instead of PropertiesService to avoid permission issues
  */
 function saveConfig(config) {
-  try {
-    const userProperties = PropertiesService.getUserProperties();
-    userProperties.setProperty(CONFIG_KEY, JSON.stringify(config));
-  } catch (e) {
-    Logger.log('Storage access error in saveConfig: ' + e.message);
-    throw new Error('Unable to save settings. Please try re-authorizing the add-on from the Extensions menu, or make a copy of this spreadsheet.');
-  }
+  setSheetProperty(CONFIG_KEY, JSON.stringify(config));
 }
 
 /**
@@ -1103,8 +1166,7 @@ function showAbout() {
  */
 function getJiraConfig() {
   try {
-    const userProperties = PropertiesService.getUserProperties();
-    const savedConfig = userProperties.getProperty(JIRA_CONFIG_KEY);
+    const savedConfig = getSheetProperty(JIRA_CONFIG_KEY);
 
     if (savedConfig) {
       try {
@@ -1116,7 +1178,6 @@ function getJiraConfig() {
 
     return { ...DEFAULT_JIRA_CONFIG };
   } catch (e) {
-    // Return defaults if storage access fails (e.g., PERMISSION_DENIED)
     Logger.log('Storage access error in getJiraConfig: ' + e.message);
     return { ...DEFAULT_JIRA_CONFIG };
   }
@@ -1126,13 +1187,7 @@ function getJiraConfig() {
  * Saves Jira configuration
  */
 function saveJiraConfig(config) {
-  try {
-    const userProperties = PropertiesService.getUserProperties();
-    userProperties.setProperty(JIRA_CONFIG_KEY, JSON.stringify(config));
-  } catch (e) {
-    Logger.log('Storage access error in saveJiraConfig: ' + e.message);
-    throw new Error('Unable to save Jira settings. Please try re-authorizing the add-on from the Extensions menu, or make a copy of this spreadsheet.');
-  }
+  setSheetProperty(JIRA_CONFIG_KEY, JSON.stringify(config));
 }
 
 /**
@@ -2042,8 +2097,7 @@ function include(filename) {
  */
 function getSmartsheetConfig() {
   try {
-    const userProperties = PropertiesService.getUserProperties();
-    const savedConfig = userProperties.getProperty(SMARTSHEET_CONFIG_KEY);
+    const savedConfig = getSheetProperty(SMARTSHEET_CONFIG_KEY);
 
     if (savedConfig) {
       try {
@@ -2060,7 +2114,6 @@ function getSmartsheetConfig() {
 
     return { ...DEFAULT_SMARTSHEET_CONFIG };
   } catch (e) {
-    // Return defaults if storage access fails (e.g., PERMISSION_DENIED)
     Logger.log('Storage access error in getSmartsheetConfig: ' + e.message);
     return { ...DEFAULT_SMARTSHEET_CONFIG };
   }
@@ -2070,13 +2123,7 @@ function getSmartsheetConfig() {
  * Saves Smartsheet configuration
  */
 function saveSmartsheetConfig(config) {
-  try {
-    const userProperties = PropertiesService.getUserProperties();
-    userProperties.setProperty(SMARTSHEET_CONFIG_KEY, JSON.stringify(config));
-  } catch (e) {
-    Logger.log('Storage access error in saveSmartsheetConfig: ' + e.message);
-    throw new Error('Unable to save Smartsheet settings. Please try re-authorizing the add-on from the Extensions menu, or make a copy of this spreadsheet.');
-  }
+  setSheetProperty(SMARTSHEET_CONFIG_KEY, JSON.stringify(config));
 }
 
 /**
