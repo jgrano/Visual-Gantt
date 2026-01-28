@@ -190,6 +190,51 @@
         <td>No</td>
         <td>Team or category for grouping</td>
       </tr>
+      <tr>
+        <td>Status</td>
+        <td>No</td>
+        <td>Not Started, In Progress, Complete, On Hold, At Risk</td>
+      </tr>
+      <tr>
+        <td>Health</td>
+        <td>No</td>
+        <td>Green, Yellow, or Red health indicator</td>
+      </tr>
+      <tr>
+        <td>Baseline Start/End</td>
+        <td>No</td>
+        <td>Original planned dates for schedule comparison</td>
+      </tr>
+      <tr>
+        <td>Dependency Type</td>
+        <td>No</td>
+        <td>FS (Finish-Start), SS (Start-Start), FF (Finish-Finish), SF (Start-Finish)</td>
+      </tr>
+      <tr>
+        <td>Lag/Lead (Days)</td>
+        <td>No</td>
+        <td>Delay (+) or overlap (-) between dependent tasks</td>
+      </tr>
+      <tr>
+        <td>Resource %</td>
+        <td>No</td>
+        <td>Resource allocation percentage (0-100)</td>
+      </tr>
+      <tr>
+        <td>Budget/Actual Cost</td>
+        <td>No</td>
+        <td>Planned vs actual cost for tracking</td>
+      </tr>
+      <tr>
+        <td>Work Days Only</td>
+        <td>No</td>
+        <td>TRUE/FALSE - exclude weekends from scheduling</td>
+      </tr>
+      <tr>
+        <td>Notes</td>
+        <td>No</td>
+        <td>Comments and notes for the task</td>
+      </tr>
     </table>
   </div>
 
@@ -214,9 +259,93 @@
       <li>Dependencies are shown as arrows connecting tasks</li>
     </ul>
 
+    <p><strong>Dependency Types:</strong></p>
+    <ul>
+      <li><strong>FS (Finish-to-Start):</strong> Default. Successor starts after predecessor finishes.</li>
+      <li><strong>SS (Start-to-Start):</strong> Both tasks can start together.</li>
+      <li><strong>FF (Finish-to-Finish):</strong> Both tasks finish together.</li>
+      <li><strong>SF (Start-to-Finish):</strong> Predecessor start triggers successor finish.</li>
+    </ul>
+
+    <p><strong>Lag/Lead Time:</strong></p>
+    <ul>
+      <li>Positive value = Lag (delay). Task B starts 3 days AFTER Task A finishes.</li>
+      <li>Negative value = Lead (overlap). Task B starts 2 days BEFORE Task A finishes.</li>
+    </ul>
+
     <div class="warning">
       <strong>Note:</strong> Circular dependencies (A depends on B, B depends on A) will be detected and reported as errors.
     </div>
+  </div>
+
+  <div class="section">
+    <h3>Critical Path</h3>
+    <p>The critical path identifies tasks that directly impact the project end date:</p>
+    <ul>
+      <li>Access via <code>Scheduling > Calculate Critical Path</code></li>
+      <li>Critical path tasks are highlighted in red</li>
+      <li>Any delay on these tasks will delay the entire project</li>
+      <li>Use <code>Views & Filters > Critical Path Only</code> to focus on critical tasks</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h3>Baseline Tracking</h3>
+    <p>Track schedule changes against your original plan:</p>
+    <ul>
+      <li><strong>Save Baseline:</strong> <code>Baseline > Save Current as Baseline</code> to capture current dates</li>
+      <li><strong>Compare:</strong> <code>Baseline > Compare to Baseline</code> to see schedule slippage</li>
+      <li>Baseline bars appear below task bars in the timeline when enabled</li>
+      <li>Red highlighting shows tasks that have slipped past their baseline</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h3>Auto-Scheduling</h3>
+    <p>Automatically cascade date changes through dependencies:</p>
+    <ul>
+      <li>Access via <code>Scheduling > Auto-Schedule Tasks</code></li>
+      <li>Tasks are scheduled as early as possible based on predecessors</li>
+      <li>Respects dependency types (FS, SS, FF, SF) and lag/lead times</li>
+      <li>Considers work days when "Exclude Weekends" is enabled</li>
+    </ul>
+
+    <div class="tip">
+      <strong>Tip:</strong> Save a baseline before auto-scheduling to track changes!
+    </div>
+  </div>
+
+  <div class="section">
+    <h3>Filters & Views</h3>
+    <p>Quickly focus on specific tasks via <code>Views & Filters</code>:</p>
+    <ul>
+      <li><strong>My Tasks:</strong> Show only tasks assigned to you</li>
+      <li><strong>Overdue Tasks:</strong> Tasks past their end date that aren't complete</li>
+      <li><strong>At Risk Tasks:</strong> Tasks with "At Risk" status or Yellow/Red health</li>
+      <li><strong>Critical Path Only:</strong> Focus on schedule-critical tasks</li>
+      <li><strong>Show All:</strong> Remove filters and show all tasks</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h3>Cost Tracking</h3>
+    <p>Track budget vs actual costs:</p>
+    <ul>
+      <li>Enter planned costs in "Budget Cost" column</li>
+      <li>Update "Actual Cost" as work progresses</li>
+      <li>View cost summary via <code>Views & Filters > Cost Summary View</code></li>
+      <li>Parent task costs automatically roll up from children</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h3>Holiday Management</h3>
+    <p>Exclude holidays from work day calculations:</p>
+    <ul>
+      <li>Access via <code>Manage Holidays</code></li>
+      <li>Add company holidays that should be excluded from scheduling</li>
+      <li>Works with "Exclude Weekends" setting for accurate date calculations</li>
+    </ul>
   </div>
 
   <div class="section">

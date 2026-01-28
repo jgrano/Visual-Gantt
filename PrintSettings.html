@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      padding: 20px;
+      background: #fafafa;
+      color: #333;
+    }
+    .form-section {
+      background: white;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 15px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .section-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #4285F4;
+      margin-bottom: 15px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid #E8F0FE;
+    }
+    .form-group {
+      margin-bottom: 15px;
+    }
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: #5f6368;
+      margin-bottom: 6px;
+    }
+    select, input[type="date"] {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #dadce0;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    select:focus, input:focus {
+      outline: none;
+      border-color: #4285F4;
+      box-shadow: 0 0 0 2px rgba(66, 133, 244, 0.2);
+    }
+    .row {
+      display: flex;
+      gap: 15px;
+    }
+    .col {
+      flex: 1;
+    }
+    .date-range {
+      display: none;
+    }
+    .date-range.visible {
+      display: block;
+    }
+    .btn {
+      padding: 10px 24px;
+      border: none;
+      border-radius: 4px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: #4285F4;
+      color: white;
+    }
+    .btn-primary:hover {
+      background: #3367D6;
+    }
+    .btn-secondary {
+      background: #f1f3f4;
+      color: #5f6368;
+    }
+    .btn-secondary:hover {
+      background: #e8eaed;
+    }
+    .actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 20px;
+    }
+    .status {
+      padding: 10px;
+      border-radius: 4px;
+      font-size: 13px;
+      margin-top: 15px;
+      display: none;
+    }
+    .status.success {
+      display: block;
+      background: #E8F5E9;
+      color: #2E7D32;
+    }
+    .hint {
+      font-size: 11px;
+      color: #9aa0a6;
+      margin-top: 4px;
+    }
+  </style>
+</head>
+<body>
+  <form id="printForm" onsubmit="savePrintSettings(event)">
+    <div class="form-section">
+      <div class="section-title">Print Date Range</div>
+      <div class="form-group">
+        <label for="dateRange">Date Range</label>
+        <select id="dateRange" name="dateRange" onchange="toggleDateRange()">
+          <option value="all">All Tasks (Auto)</option>
+          <option value="custom">Custom Date Range</option>
+        </select>
+      </div>
+
+      <div class="date-range" id="customDateRange">
+        <div class="row">
+          <div class="col">
+            <div class="form-group">
+              <label for="printStartDate">Start Date</label>
+              <input type="date" id="printStartDate" name="printStartDate">
+            </div>
+          </div>
+          <div class="col">
+            <div class="form-group">
+              <label for="printEndDate">End Date</label>
+              <input type="date" id="printEndDate" name="printEndDate">
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-section">
+      <div class="section-title">Print Layout</div>
+      <div class="row">
+        <div class="col">
+          <div class="form-group">
+            <label for="scale">Scale</label>
+            <select id="scale" name="scale">
+              <option value="fit">Fit to Page</option>
+              <option value="100%">100%</option>
+              <option value="75%">75%</option>
+              <option value="50%">50%</option>
+            </select>
+          </div>
+        </div>
+        <div class="col">
+          <div class="form-group">
+            <label for="orientation">Orientation</label>
+            <select id="orientation" name="orientation">
+              <option value="landscape">Landscape</option>
+              <option value="portrait">Portrait</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <p class="hint">These settings apply when exporting to PDF.</p>
+    </div>
+
+    <div class="status" id="status"></div>
+
+    <div class="actions">
+      <button type="button" class="btn btn-secondary" onclick="google.script.host.close()">Cancel</button>
+      <button type="submit" class="btn btn-primary">Save Settings</button>
+    </div>
+  </form>
+
+  <script>
+    // Load settings on page load
+    google.script.run
+      .withSuccessHandler(loadSettings)
+      .withFailureHandler(handleError)
+      .getPrintSettings();
+
+    function loadSettings(settings) {
+      document.getElementById('dateRange').value = settings.dateRange || 'all';
+      document.getElementById('scale').value = settings.scale || 'fit';
+      document.getElementById('orientation').value = settings.orientation || 'landscape';
+
+      if (settings.startDate) {
+        document.getElementById('printStartDate').value = settings.startDate;
+      }
+      if (settings.endDate) {
+        document.getElementById('printEndDate').value = settings.endDate;
+      }
+
+      toggleDateRange();
+    }
+
+    function toggleDateRange() {
+      const dateRange = document.getElementById('dateRange').value;
+      const customRange = document.getElementById('customDateRange');
+      customRange.className = dateRange === 'custom' ? 'date-range visible' : 'date-range';
+    }
+
+    function savePrintSettings(event) {
+      event.preventDefault();
+
+      const settings = {
+        dateRange: document.getElementById('dateRange').value,
+        startDate: document.getElementById('printStartDate').value || null,
+        endDate: document.getElementById('printEndDate').value || null,
+        scale: document.getElementById('scale').value,
+        orientation: document.getElementById('orientation').value
+      };
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          showStatus('Print settings saved successfully!');
+          setTimeout(function() {
+            google.script.host.close();
+          }, 1000);
+        })
+        .withFailureHandler(handleError)
+        .savePrintSettings(settings);
+    }
+
+    function showStatus(message) {
+      const status = document.getElementById('status');
+      status.textContent = message;
+      status.className = 'status success';
+    }
+
+    function handleError(error) {
+      alert('Error: ' + error.message);
+    }
+  </script>
+</body>
+</html>

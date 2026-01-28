@@ -237,7 +237,12 @@
       swimlaneHeader: '#F8F9FA',
       dependency: '#9E9E9E',
       progress: 'rgba(255,255,255,0.4)',
-      milestone: '#9C27B0'
+      milestone: '#9C27B0',
+      criticalPath: '#D32F2F',
+      baseline: 'rgba(128, 128, 128, 0.3)',
+      healthGreen: '#4CAF50',
+      healthYellow: '#FFC107',
+      healthRed: '#F44336'
     };
 
     // Render functions
@@ -262,13 +267,23 @@
         drawTodayMarker();
       }
 
-      // Draw dependencies first (behind bars)
+      // Draw baseline bars first (behind main bars)
+      if (config.showBaseline) {
+        drawBaselines();
+      }
+
+      // Draw dependencies (behind bars)
       if (config.showDependencies) {
         drawDependencies();
       }
 
       // Draw task bars
       drawTasks();
+
+      // Draw health indicators
+      if (config.showHealthIndicators) {
+        drawHealthIndicators();
+      }
 
       // Draw date axis
       drawDateAxis();
@@ -550,10 +565,22 @@
     function drawTaskBar(x, y, width, task) {
       const radius = 4;
 
+      // Critical path highlighting - draw red glow behind bar
+      if (config.showCriticalPath && task.isOnCriticalPath) {
+        ctx.shadowColor = COLORS.criticalPath;
+        ctx.shadowBlur = 8;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
+      }
+
       // Main bar
-      ctx.fillStyle = task.color;
+      ctx.fillStyle = task.criticalPathColor || task.color;
       roundRect(ctx, x, y, width, BAR_HEIGHT, radius);
       ctx.fill();
+
+      // Reset shadow
+      ctx.shadowColor = 'transparent';
+      ctx.shadowBlur = 0;
 
       // Progress bar
       if (config.showPercentComplete && task.percentComplete > 0) {
@@ -614,6 +641,70 @@
       ctx.strokeRect(-size / 2, -size / 2, size, size);
 
       ctx.restore();
+    }
+
+    function drawBaselines() {
+      tasks.forEach((task, index) => {
+        if (!task.baselineStartStr || !task.baselineEndStr) return;
+        if (task.taskType === 'Milestone') return;
+
+        const x = dateToX(task.baselineStartStr);
+        const y = taskToY(index) + BAR_HEIGHT + 2; // Below the main bar
+        const width = dateToX(task.baselineEndStr) - x;
+        const baselineHeight = 4;
+
+        // Draw thin baseline bar
+        ctx.fillStyle = COLORS.baseline;
+        roundRect(ctx, x, y, Math.max(width, 4), baselineHeight, 2);
+        ctx.fill();
+
+        // Draw slippage indicator if task slipped
+        if (task.slippage && task.slippage > 0) {
+          const mainEndX = dateToX(task.endDateStr);
+          const baselineEndX = dateToX(task.baselineEndStr);
+
+          if (mainEndX > baselineEndX) {
+            // Draw red area showing delay
+            ctx.fillStyle = 'rgba(244, 67, 54, 0.3)';
+            ctx.fillRect(baselineEndX, taskToY(index), mainEndX - baselineEndX, BAR_HEIGHT);
+          }
+        }
+      });
+    }
+
+    function drawHealthIndicators() {
+      tasks.forEach((task, index) => {
+        if (!task.health) return;
+
+        const y = taskToY(index) + BAR_HEIGHT / 2;
+        const x = MARGIN.left - 25; // To the left of task names
+        const radius = 5;
+
+        // Draw health dot
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+
+        switch (task.health) {
+          case 'Green':
+            ctx.fillStyle = COLORS.healthGreen;
+            break;
+          case 'Yellow':
+            ctx.fillStyle = COLORS.healthYellow;
+            break;
+          case 'Red':
+            ctx.fillStyle = COLORS.healthRed;
+            break;
+          default:
+            ctx.fillStyle = '#9E9E9E';
+        }
+
+        ctx.fill();
+
+        // Add border
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      });
     }
 
     function drawTaskLabels() {
@@ -706,6 +797,26 @@
         html += '<div class="legend-item"><div class="legend-color" style="background:#DC3545"></div>High Priority</div>';
         html += '<div class="legend-item"><div class="legend-color" style="background:#FFC107"></div>Medium Priority</div>';
         html += '<div class="legend-item"><div class="legend-color" style="background:#28A745"></div>Low Priority</div>';
+      } else if (config.colorScheme === 'status') {
+        html += '<div class="legend-item"><div class="legend-color" style="background:#9E9E9E"></div>Not Started</div>';
+        html += '<div class="legend-item"><div class="legend-color" style="background:#2196F3"></div>In Progress</div>';
+        html += '<div class="legend-item"><div class="legend-color" style="background:#4CAF50"></div>Complete</div>';
+        html += '<div class="legend-item"><div class="legend-color" style="background:#FF9800"></div>On Hold</div>';
+        html += '<div class="legend-item"><div class="legend-color" style="background:#F44336"></div>At Risk</div>';
+      } else if (config.colorScheme === 'health') {
+        html += '<div class="legend-item"><div class="legend-color" style="background:#4CAF50"></div>Green (On Track)</div>';
+        html += '<div class="legend-item"><div class="legend-color" style="background:#FFC107"></div>Yellow (At Risk)</div>';
+        html += '<div class="legend-item"><div class="legend-color" style="background:#F44336"></div>Red (Critical)</div>';
+      }
+
+      // Critical path
+      if (config.showCriticalPath) {
+        html += '<div class="legend-item"><div class="legend-color" style="background:#D32F2F;box-shadow:0 0 6px #D32F2F"></div>Critical Path</div>';
+      }
+
+      // Baseline
+      if (config.showBaseline) {
+        html += '<div class="legend-item"><div class="legend-color" style="background:rgba(128,128,128,0.4);height:4px;margin-top:6px"></div>Baseline</div>';
       }
 
       // Milestone legend
@@ -721,6 +832,13 @@
       // Progress indicator
       if (config.showPercentComplete) {
         html += '<div class="legend-item"><div class="legend-color" style="background:linear-gradient(90deg,rgba(255,255,255,0.4) 50%,#2196F3 50%)"></div>% Complete</div>';
+      }
+
+      // Health indicators
+      if (config.showHealthIndicators) {
+        html += '<div class="legend-item"><div class="legend-color" style="background:#4CAF50;border-radius:50%;width:10px;height:10px"></div>Health: Green</div>';
+        html += '<div class="legend-item"><div class="legend-color" style="background:#FFC107;border-radius:50%;width:10px;height:10px"></div>Health: Yellow</div>';
+        html += '<div class="legend-item"><div class="legend-color" style="background:#F44336;border-radius:50%;width:10px;height:10px"></div>Health: Red</div>';
       }
 
       legendEl.innerHTML = html;

@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      padding: 20px;
+      background: #fafafa;
+      color: #333;
+    }
+    .form-section {
+      background: white;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 15px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .section-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #4285F4;
+      margin-bottom: 15px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid #E8F0FE;
+    }
+    .add-row {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 15px;
+    }
+    input[type="date"] {
+      flex: 1;
+      padding: 10px 12px;
+      border: 1px solid #dadce0;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    input:focus {
+      outline: none;
+      border-color: #4285F4;
+      box-shadow: 0 0 0 2px rgba(66, 133, 244, 0.2);
+    }
+    .holiday-list {
+      max-height: 200px;
+      overflow-y: auto;
+      border: 1px solid #dadce0;
+      border-radius: 4px;
+    }
+    .holiday-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 15px;
+      border-bottom: 1px solid #f1f3f4;
+    }
+    .holiday-item:last-child {
+      border-bottom: none;
+    }
+    .holiday-item:hover {
+      background: #f8f9fa;
+    }
+    .holiday-date {
+      font-size: 14px;
+      color: #333;
+    }
+    .delete-btn {
+      background: none;
+      border: none;
+      color: #EA4335;
+      cursor: pointer;
+      font-size: 18px;
+      padding: 5px;
+    }
+    .delete-btn:hover {
+      background: #FFEBEE;
+      border-radius: 4px;
+    }
+    .empty-message {
+      padding: 20px;
+      text-align: center;
+      color: #9aa0a6;
+      font-size: 13px;
+    }
+    .btn {
+      padding: 10px 24px;
+      border: none;
+      border-radius: 4px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: #4285F4;
+      color: white;
+    }
+    .btn-primary:hover {
+      background: #3367D6;
+    }
+    .btn-secondary {
+      background: #f1f3f4;
+      color: #5f6368;
+    }
+    .btn-secondary:hover {
+      background: #e8eaed;
+    }
+    .actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 20px;
+    }
+    .hint {
+      font-size: 12px;
+      color: #9aa0a6;
+      margin-top: 10px;
+    }
+    .status {
+      padding: 10px;
+      border-radius: 4px;
+      font-size: 13px;
+      margin-top: 15px;
+      display: none;
+    }
+    .status.success {
+      display: block;
+      background: #E8F5E9;
+      color: #2E7D32;
+    }
+  </style>
+</head>
+<body>
+  <div class="form-section">
+    <div class="section-title">Add Holiday</div>
+    <div class="add-row">
+      <input type="date" id="newHoliday" placeholder="Select date">
+      <button class="btn btn-primary" onclick="addHoliday()">Add</button>
+    </div>
+    <p class="hint">Holidays will be excluded from work day calculations when scheduling tasks.</p>
+  </div>
+
+  <div class="form-section">
+    <div class="section-title">Current Holidays</div>
+    <div class="holiday-list" id="holidayList">
+      <div class="empty-message">No holidays defined</div>
+    </div>
+  </div>
+
+  <div class="status" id="status"></div>
+
+  <div class="actions">
+    <button class="btn btn-secondary" onclick="google.script.host.close()">Cancel</button>
+    <button class="btn btn-primary" onclick="saveHolidays()">Save</button>
+  </div>
+
+  <script>
+    let holidays = [];
+
+    // Load holidays on page load
+    google.script.run
+      .withSuccessHandler(loadHolidays)
+      .withFailureHandler(handleError)
+      .getHolidays();
+
+    function loadHolidays(data) {
+      holidays = data || [];
+      renderHolidayList();
+    }
+
+    function renderHolidayList() {
+      const list = document.getElementById('holidayList');
+
+      if (holidays.length === 0) {
+        list.innerHTML = '<div class="empty-message">No holidays defined</div>';
+        return;
+      }
+
+      // Sort holidays
+      holidays.sort();
+
+      list.innerHTML = holidays.map((date, index) => `
+        <div class="holiday-item">
+          <span class="holiday-date">${formatDate(date)}</span>
+          <button class="delete-btn" onclick="removeHoliday(${index})">×</button>
+        </div>
+      `).join('');
+    }
+
+    function formatDate(dateStr) {
+      const date = new Date(dateStr + 'T00:00:00');
+      return date.toLocaleDateString('en-US', {
+        weekday: 'short',
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      });
+    }
+
+    function addHoliday() {
+      const input = document.getElementById('newHoliday');
+      const dateValue = input.value;
+
+      if (!dateValue) {
+        alert('Please select a date');
+        return;
+      }
+
+      if (holidays.includes(dateValue)) {
+        alert('This date is already added');
+        return;
+      }
+
+      holidays.push(dateValue);
+      renderHolidayList();
+      input.value = '';
+    }
+
+    function removeHoliday(index) {
+      holidays.splice(index, 1);
+      renderHolidayList();
+    }
+
+    function saveHolidays() {
+      google.script.run
+        .withSuccessHandler(function(result) {
+          showStatus('Holidays saved successfully!');
+          setTimeout(function() {
+            google.script.host.close();
+          }, 1000);
+        })
+        .withFailureHandler(handleError)
+        .saveHolidays(holidays);
+    }
+
+    function showStatus(message) {
+      const status = document.getElementById('status');
+      status.textContent = message;
+      status.className = 'status success';
+    }
+
+    function handleError(error) {
+      alert('Error: ' + error.message);
+    }
+  </script>
+</body>
+</html>

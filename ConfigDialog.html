@@ -185,6 +185,8 @@
               <option value="priority">By Priority</option>
               <option value="taskType">By Task Type</option>
               <option value="swimlane">By Swimlane</option>
+              <option value="status">By Status</option>
+              <option value="health">By Health</option>
             </select>
           </div>
         </div>
@@ -204,15 +206,37 @@
             <input type="checkbox" id="showPercentComplete" name="showPercentComplete">
             <label for="showPercentComplete">Show % Complete</label>
           </div>
-        </div>
-        <div class="col">
           <div class="form-group checkbox-group">
             <input type="checkbox" id="showMilestones" name="showMilestones">
             <label for="showMilestones">Show Milestones</label>
           </div>
+        </div>
+        <div class="col">
           <div class="form-group checkbox-group">
             <input type="checkbox" id="showTodayMarker" name="showTodayMarker">
             <label for="showTodayMarker">Show Today Marker</label>
+          </div>
+          <div class="form-group checkbox-group">
+            <input type="checkbox" id="showCriticalPath" name="showCriticalPath">
+            <label for="showCriticalPath">Show Critical Path</label>
+          </div>
+          <div class="form-group checkbox-group">
+            <input type="checkbox" id="showBaseline" name="showBaseline">
+            <label for="showBaseline">Show Baseline</label>
+          </div>
+        </div>
+      </div>
+      <div class="row" style="margin-top: 10px;">
+        <div class="col">
+          <div class="form-group checkbox-group">
+            <input type="checkbox" id="showHealthIndicators" name="showHealthIndicators">
+            <label for="showHealthIndicators">Show Health Indicators</label>
+          </div>
+        </div>
+        <div class="col">
+          <div class="form-group checkbox-group">
+            <input type="checkbox" id="excludeWeekends" name="excludeWeekends">
+            <label for="excludeWeekends">Exclude Weekends</label>
           </div>
         </div>
       </div>
@@ -275,6 +299,10 @@
       showPercentComplete: true,
       showMilestones: true,
       showTodayMarker: true,
+      showCriticalPath: true,
+      showBaseline: true,
+      showHealthIndicators: true,
+      excludeWeekends: true,
       barHeight: 24,
       barSpacing: 8,
       fontSize: 12,
@@ -308,6 +336,10 @@
       document.getElementById('showPercentComplete').checked = config.showPercentComplete !== false;
       document.getElementById('showMilestones').checked = config.showMilestones !== false;
       document.getElementById('showTodayMarker').checked = config.showTodayMarker !== false;
+      document.getElementById('showCriticalPath').checked = config.showCriticalPath !== false;
+      document.getElementById('showBaseline').checked = config.showBaseline !== false;
+      document.getElementById('showHealthIndicators').checked = config.showHealthIndicators !== false;
+      document.getElementById('excludeWeekends').checked = config.excludeWeekends !== false;
 
       // Number fields
       document.getElementById('barHeight').value = config.barHeight || 24;
@@ -335,6 +367,10 @@
         showPercentComplete: document.getElementById('showPercentComplete').checked,
         showMilestones: document.getElementById('showMilestones').checked,
         showTodayMarker: document.getElementById('showTodayMarker').checked,
+        showCriticalPath: document.getElementById('showCriticalPath').checked,
+        showBaseline: document.getElementById('showBaseline').checked,
+        showHealthIndicators: document.getElementById('showHealthIndicators').checked,
+        excludeWeekends: document.getElementById('excludeWeekends').checked,
         barHeight: parseInt(document.getElementById('barHeight').value) || 24,
         barSpacing: parseInt(document.getElementById('barSpacing').value) || 8,
         chartWidth: parseInt(document.getElementById('chartWidth').value) || 1200,
