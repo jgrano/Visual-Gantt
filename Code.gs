@@ -159,6 +159,75 @@ const SWIMLANE_COLORS = [
 ];
 
 // ============================================================================
+// HIDDEN SHEET STORAGE (Alternative to PropertiesService)
+// ============================================================================
+
+const CONFIG_SHEET_NAME = '_VisualGanttConfig';
+
+/**
+ * Gets or creates the hidden config sheet
+ */
+function getConfigSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let configSheet = ss.getSheetByName(CONFIG_SHEET_NAME);
+
+  if (!configSheet) {
+    configSheet = ss.insertSheet(CONFIG_SHEET_NAME);
+    // Hide the sheet
+    configSheet.hideSheet();
+    // Set up header row
+    configSheet.getRange('A1:B1').setValues([['Key', 'Value']]);
+  }
+
+  return configSheet;
+}
+
+/**
+ * Gets a value from the hidden config sheet
+ */
+function getSheetProperty(key) {
+  try {
+    const configSheet = getConfigSheet();
+    const data = configSheet.getDataRange().getValues();
+
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === key) {
+        return data[i][1];
+      }
+    }
+    return null;
+  } catch (e) {
+    Logger.log('Error reading sheet property: ' + e.message);
+    return null;
+  }
+}
+
+/**
+ * Sets a value in the hidden config sheet
+ */
+function setSheetProperty(key, value) {
+  try {
+    const configSheet = getConfigSheet();
+    const data = configSheet.getDataRange().getValues();
+
+    // Look for existing key
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === key) {
+        configSheet.getRange(i + 1, 2).setValue(value);
+        return;
+      }
+    }
+
+    // Key not found, append new row
+    const lastRow = configSheet.getLastRow();
+    configSheet.getRange(lastRow + 1, 1, 1, 2).setValues([[key, value]]);
+  } catch (e) {
+    Logger.log('Error writing sheet property: ' + e.message);
+    throw new Error('Unable to save settings: ' + e.message);
+  }
+}
+
+// ============================================================================
 // MENU & TRIGGERS
 // ============================================================================
 
@@ -754,8 +823,7 @@ function getConfig() {
 
   // Fallback to PropertiesService (may fail with PERMISSION_DENIED)
   try {
-    const userProperties = PropertiesService.getUserProperties();
-    const savedConfig = userProperties.getProperty(CONFIG_KEY);
+    const savedConfig = getSheetProperty(CONFIG_KEY);
 
     if (savedConfig) {
       try {
@@ -1256,8 +1324,7 @@ function getJiraConfig() {
 
   // Fallback to PropertiesService (may fail with PERMISSION_DENIED)
   try {
-    const userProperties = PropertiesService.getUserProperties();
-    const savedConfig = userProperties.getProperty(JIRA_CONFIG_KEY);
+    const savedConfig = getSheetProperty(JIRA_CONFIG_KEY);
 
     if (savedConfig) {
       try {
@@ -2234,8 +2301,7 @@ function getSmartsheetConfig() {
 
   // Fallback to PropertiesService (may fail with PERMISSION_DENIED)
   try {
-    const userProperties = PropertiesService.getUserProperties();
-    const savedConfig = userProperties.getProperty(SMARTSHEET_CONFIG_KEY);
+    const savedConfig = getSheetProperty(SMARTSHEET_CONFIG_KEY);
 
     if (savedConfig) {
       try {
