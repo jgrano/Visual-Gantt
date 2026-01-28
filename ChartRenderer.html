@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: #f5f5f5;
+      padding: 20px;
+    }
+    .container {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      padding: 20px;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      padding-bottom: 15px;
+      border-bottom: 1px solid #e0e0e0;
+    }
+    .header h2 {
+      color: #333;
+      font-weight: 500;
+    }
+    .actions {
+      display: flex;
+      gap: 10px;
+    }
+    .btn {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: #4285F4;
+      color: white;
+    }
+    .btn-primary:hover {
+      background: #3367D6;
+    }
+    .btn-secondary {
+      background: #f1f3f4;
+      color: #5f6368;
+    }
+    .btn-secondary:hover {
+      background: #e8eaed;
+    }
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .canvas-container {
+      overflow: auto;
+      border: 1px solid #e0e0e0;
+      border-radius: 4px;
+      background: white;
+    }
+    canvas {
+      display: block;
+    }
+    .status {
+      margin-top: 15px;
+      padding: 10px;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .status.success {
+      background: #E8F5E9;
+      color: #2E7D32;
+    }
+    .status.error {
+      background: #FFEBEE;
+      color: #C62828;
+    }
+    .status.info {
+      background: #E3F2FD;
+      color: #1565C0;
+    }
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 15px;
+      margin-top: 15px;
+      padding: 10px;
+      background: #f8f9fa;
+      border-radius: 4px;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: #666;
+    }
+    .legend-color {
+      width: 16px;
+      height: 16px;
+      border-radius: 3px;
+    }
+    .legend-diamond {
+      width: 12px;
+      height: 12px;
+      background: #9C27B0;
+      transform: rotate(45deg);
+    }
+    .loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 40px;
+      color: #666;
+    }
+    .spinner {
+      width: 30px;
+      height: 30px;
+      border: 3px solid #e0e0e0;
+      border-top-color: #4285F4;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-right: 15px;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h2>Visual Gantt Timeline</h2>
+      <div class="actions">
+        <button class="btn btn-primary" id="saveBtn" onclick="saveToSheet()">Save to Sheet</button>
+        <button class="btn btn-secondary" id="closeBtn" onclick="google.script.host.close()">Close</button>
+      </div>
+    </div>
+
+    <div class="canvas-container" id="canvasContainer">
+      <div class="loading" id="loading">
+        <div class="spinner"></div>
+        <span>Generating timeline...</span>
+      </div>
+      <canvas id="ganttCanvas"></canvas>
+    </div>
+
+    <div class="legend" id="legend"></div>
+
+    <div class="status info" id="status">
+      Rendering chart...
+    </div>
+  </div>
+
+  <script>
+    // Chart data from server
+    const chartData = <?= chartData ?>;
+
+    // Parse data
+    const data = JSON.parse(chartData);
+    const tasks = data.tasks;
+    const config = data.config;
+    const startDate = new Date(data.startDate);
+    const endDate = new Date(data.endDate);
+    const today = new Date(data.today);
+
+    // Canvas setup
+    const canvas = document.getElementById('ganttCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // Layout constants
+    const MARGIN = { top: 80, right: 40, bottom: 40, left: 250 };
+    const BAR_HEIGHT = config.barHeight || 24;
+    const BAR_SPACING = config.barSpacing || 8;
+    const ROW_HEIGHT = BAR_HEIGHT + BAR_SPACING;
+    const FONT_SIZE = config.fontSize || 12;
+    const HEADER_HEIGHT = 60;
+
+    // Calculate dimensions
+    const totalDays = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24));
+    const chartWidth = Math.max(config.chartWidth || 1200, totalDays * 15);
+    const chartHeight = Math.max(config.chartHeight || 600, MARGIN.top + (tasks.length * ROW_HEIGHT) + MARGIN.bottom + 100);
+
+    // Set canvas size
+    canvas.width = chartWidth + MARGIN.left + MARGIN.right;
+    canvas.height = chartHeight;
+
+    // High DPI support
+    const dpr = window.devicePixelRatio || 1;
+    canvas.style.width = canvas.width + 'px';
+    canvas.style.height = canvas.height + 'px';
+    canvas.width *= dpr;
+    canvas.height *= dpr;
+    ctx.scale(dpr, dpr);
+
+    // Restore logical dimensions for calculations
+    const canvasWidth = canvas.width / dpr;
+    const canvasHeight = canvas.height / dpr;
+
+    // Chart area
+    const chartArea = {
+      x: MARGIN.left,
+      y: MARGIN.top,
+      width: canvasWidth - MARGIN.left - MARGIN.right,
+      height: canvasHeight - MARGIN.top - MARGIN.bottom
+    };
+
+    // Scale functions
+    function dateToX(date) {
+      const d = new Date(date);
+      const daysDiff = (d - startDate) / (1000 * 60 * 60 * 24);
+      return chartArea.x + (daysDiff / totalDays) * chartArea.width;
+    }
+
+    function taskToY(index) {
+      return chartArea.y + (index * ROW_HEIGHT);
+    }
+
+    // Colors
+    const COLORS = {
+      background: '#FFFFFF',
+      grid: '#E0E0E0',
+      gridLight: '#F5F5F5',
+      text: '#333333',
+      textLight: '#666666',
+      today: '#FF5722',
+      swimlaneHeader: '#F8F9FA',
+      dependency: '#9E9E9E',
+      progress: 'rgba(255,255,255,0.4)',
+      milestone: '#9C27B0'
+    };
+
+    // Render functions
+    function render() {
+      // Clear canvas
+      ctx.fillStyle = COLORS.background;
+      ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+      // Draw title
+      drawTitle();
+
+      // Draw grid
+      drawGrid();
+
+      // Draw swimlanes
+      if (config.swimlaneGrouping !== 'None') {
+        drawSwimlanes();
+      }
+
+      // Draw today marker
+      if (config.showTodayMarker) {
+        drawTodayMarker();
+      }
+
+      // Draw dependencies first (behind bars)
+      if (config.showDependencies) {
+        drawDependencies();
+      }
+
+      // Draw task bars
+      drawTasks();
+
+      // Draw date axis
+      drawDateAxis();
+
+      // Draw task labels
+      drawTaskLabels();
+
+      // Update UI
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('status').textContent = `Timeline generated with ${tasks.length} tasks`;
+      document.getElementById('status').className = 'status success';
+
+      // Build legend
+      buildLegend();
+    }
+
+    function drawTitle() {
+      ctx.fillStyle = COLORS.text;
+      ctx.font = `bold 18px 'Segoe UI', sans-serif`;
+      ctx.textAlign = 'left';
+      ctx.fillText('Project Timeline', MARGIN.left, 30);
+
+      ctx.font = `12px 'Segoe UI', sans-serif`;
+      ctx.fillStyle = COLORS.textLight;
+      const dateRange = `${formatDate(startDate)} - ${formatDate(endDate)}`;
+      ctx.fillText(dateRange, MARGIN.left, 50);
+    }
+
+    function drawGrid() {
+      ctx.strokeStyle = COLORS.gridLight;
+      ctx.lineWidth = 1;
+
+      // Horizontal grid lines
+      for (let i = 0; i <= tasks.length; i++) {
+        const y = taskToY(i);
+        ctx.beginPath();
+        ctx.moveTo(chartArea.x, y);
+        ctx.lineTo(chartArea.x + chartArea.width, y);
+        ctx.stroke();
+      }
+
+      // Vertical grid lines (weekly)
+      ctx.strokeStyle = COLORS.grid;
+      const currentDate = new Date(startDate);
+      while (currentDate <= endDate) {
+        const x = dateToX(currentDate);
+        ctx.beginPath();
+        ctx.moveTo(x, chartArea.y);
+        ctx.lineTo(x, chartArea.y + (tasks.length * ROW_HEIGHT));
+        ctx.stroke();
+
+        // Move to next week
+        currentDate.setDate(currentDate.getDate() + 7);
+      }
+    }
+
+    function drawDateAxis() {
+      ctx.fillStyle = '#F8F9FA';
+      ctx.fillRect(chartArea.x, MARGIN.top - HEADER_HEIGHT, chartArea.width, HEADER_HEIGHT);
+
+      ctx.strokeStyle = COLORS.grid;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(chartArea.x, MARGIN.top);
+      ctx.lineTo(chartArea.x + chartArea.width, MARGIN.top);
+      ctx.stroke();
+
+      // Month headers
+      ctx.font = `bold ${FONT_SIZE}px 'Segoe UI', sans-serif`;
+      ctx.fillStyle = COLORS.text;
+      ctx.textAlign = 'center';
+
+      let currentMonth = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+      while (currentMonth <= endDate) {
+        const nextMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1);
+        const monthStart = Math.max(currentMonth, startDate);
+        const monthEnd = new Date(Math.min(nextMonth - 1, endDate));
+
+        const x1 = dateToX(monthStart);
+        const x2 = dateToX(monthEnd);
+        const centerX = (x1 + x2) / 2;
+
+        const monthName = currentMonth.toLocaleString('default', { month: 'short', year: 'numeric' });
+        ctx.fillText(monthName, centerX, MARGIN.top - HEADER_HEIGHT + 20);
+
+        // Month separator
+        ctx.strokeStyle = COLORS.grid;
+        ctx.beginPath();
+        ctx.moveTo(x1, MARGIN.top - HEADER_HEIGHT);
+        ctx.lineTo(x1, MARGIN.top);
+        ctx.stroke();
+
+        currentMonth = nextMonth;
+      }
+
+      // Week/Day markers
+      ctx.font = `${FONT_SIZE - 2}px 'Segoe UI', sans-serif`;
+      ctx.fillStyle = COLORS.textLight;
+
+      const daySpacing = chartArea.width / totalDays;
+      const showDays = daySpacing > 25;
+      const showWeeks = daySpacing > 5;
+
+      if (showWeeks) {
+        const currentDate = new Date(startDate);
+        // Start from Monday
+        currentDate.setDate(currentDate.getDate() - currentDate.getDay() + 1);
+
+        while (currentDate <= endDate) {
+          if (currentDate >= startDate) {
+            const x = dateToX(currentDate);
+            const label = showDays
+              ? currentDate.getDate().toString()
+              : `W${getWeekNumber(currentDate)}`;
+            ctx.fillText(label, x, MARGIN.top - 10);
+          }
+          currentDate.setDate(currentDate.getDate() + (showDays ? 1 : 7));
+        }
+      }
+    }
+
+    function drawSwimlanes() {
+      const groupField = config.swimlaneGrouping === 'Owner' ? 'owner' : 'swimlane';
+      let currentGroup = null;
+      let groupStartIndex = 0;
+
+      const swimlaneGroups = [];
+
+      tasks.forEach((task, index) => {
+        const group = task[groupField] || 'Other';
+        if (group !== currentGroup) {
+          if (currentGroup !== null) {
+            swimlaneGroups.push({
+              name: currentGroup,
+              startIndex: groupStartIndex,
+              endIndex: index - 1
+            });
+          }
+          currentGroup = group;
+          groupStartIndex = index;
+        }
+      });
+
+      // Add last group
+      if (currentGroup !== null) {
+        swimlaneGroups.push({
+          name: currentGroup,
+          startIndex: groupStartIndex,
+          endIndex: tasks.length - 1
+        });
+      }
+
+      // Draw swimlane backgrounds and labels
+      swimlaneGroups.forEach((group, idx) => {
+        const y1 = taskToY(group.startIndex);
+        const y2 = taskToY(group.endIndex + 1);
+        const height = y2 - y1;
+
+        // Alternate background
+        if (idx % 2 === 0) {
+          ctx.fillStyle = 'rgba(66, 133, 244, 0.03)';
+          ctx.fillRect(0, y1, canvasWidth, height);
+        }
+
+        // Swimlane label (vertical, on left side)
+        ctx.save();
+        ctx.fillStyle = COLORS.textLight;
+        ctx.font = `bold ${FONT_SIZE - 1}px 'Segoe UI', sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.translate(15, y1 + height / 2);
+        ctx.rotate(-Math.PI / 2);
+        ctx.fillText(group.name, 0, 0);
+        ctx.restore();
+
+        // Separator line
+        if (idx > 0) {
+          ctx.strokeStyle = 'rgba(66, 133, 244, 0.2)';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(0, y1);
+          ctx.lineTo(canvasWidth, y1);
+          ctx.stroke();
+        }
+      });
+    }
+
+    function drawTodayMarker() {
+      if (today >= startDate && today <= endDate) {
+        const x = dateToX(today);
+
+        ctx.strokeStyle = COLORS.today;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        ctx.moveTo(x, MARGIN.top - HEADER_HEIGHT);
+        ctx.lineTo(x, chartArea.y + (tasks.length * ROW_HEIGHT));
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Today label
+        ctx.fillStyle = COLORS.today;
+        ctx.font = `bold ${FONT_SIZE - 2}px 'Segoe UI', sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.fillText('Today', x, MARGIN.top - HEADER_HEIGHT - 5);
+      }
+    }
+
+    function drawDependencies() {
+      const taskIndexMap = new Map();
+      tasks.forEach((task, index) => taskIndexMap.set(task.id, index));
+
+      ctx.strokeStyle = COLORS.dependency;
+      ctx.lineWidth = 1.5;
+
+      tasks.forEach((task, index) => {
+        if (!task.dependencies || task.dependencies.length === 0) return;
+
+        task.dependencies.forEach(depId => {
+          const depIndex = taskIndexMap.get(depId);
+          if (depIndex === undefined) return;
+
+          const depTask = tasks[depIndex];
+
+          // Calculate connection points
+          const fromX = dateToX(depTask.endDateStr) + 2;
+          const fromY = taskToY(depIndex) + BAR_HEIGHT / 2;
+          const toX = dateToX(task.startDateStr) - 2;
+          const toY = taskToY(index) + BAR_HEIGHT / 2;
+
+          // Draw curved arrow
+          ctx.beginPath();
+          ctx.moveTo(fromX, fromY);
+
+          const midX = (fromX + toX) / 2;
+
+          if (toY === fromY) {
+            // Same row - straight line
+            ctx.lineTo(toX, toY);
+          } else {
+            // Different rows - curved path
+            ctx.bezierCurveTo(
+              midX, fromY,
+              midX, toY,
+              toX, toY
+            );
+          }
+
+          ctx.stroke();
+
+          // Arrow head
+          const arrowSize = 6;
+          ctx.beginPath();
+          ctx.moveTo(toX, toY);
+          ctx.lineTo(toX - arrowSize, toY - arrowSize / 2);
+          ctx.lineTo(toX - arrowSize, toY + arrowSize / 2);
+          ctx.closePath();
+          ctx.fillStyle = COLORS.dependency;
+          ctx.fill();
+        });
+      });
+    }
+
+    function drawTasks() {
+      tasks.forEach((task, index) => {
+        const x = dateToX(task.startDateStr);
+        const y = taskToY(index);
+        const width = dateToX(task.endDateStr) - x;
+
+        if (task.taskType === 'Milestone') {
+          // Draw diamond for milestones
+          drawMilestone(x, y + BAR_HEIGHT / 2, task.color);
+        } else {
+          // Draw task bar
+          drawTaskBar(x, y, Math.max(width, 4), task);
+        }
+      });
+    }
+
+    function drawTaskBar(x, y, width, task) {
+      const radius = 4;
+
+      // Main bar
+      ctx.fillStyle = task.color;
+      roundRect(ctx, x, y, width, BAR_HEIGHT, radius);
+      ctx.fill();
+
+      // Progress bar
+      if (config.showPercentComplete && task.percentComplete > 0) {
+        const progressWidth = (width * task.percentComplete) / 100;
+        ctx.fillStyle = COLORS.progress;
+
+        if (progressWidth >= width) {
+          roundRect(ctx, x, y, width, BAR_HEIGHT, radius);
+        } else {
+          ctx.beginPath();
+          ctx.moveTo(x + radius, y);
+          ctx.lineTo(x + progressWidth, y);
+          ctx.lineTo(x + progressWidth, y + BAR_HEIGHT);
+          ctx.lineTo(x + radius, y + BAR_HEIGHT);
+          ctx.arcTo(x, y + BAR_HEIGHT, x, y + BAR_HEIGHT - radius, radius);
+          ctx.lineTo(x, y + radius);
+          ctx.arcTo(x, y, x + radius, y, radius);
+          ctx.closePath();
+        }
+        ctx.fill();
+
+        // Progress text
+        if (width > 40) {
+          ctx.fillStyle = '#FFFFFF';
+          ctx.font = `bold ${FONT_SIZE - 2}px 'Segoe UI', sans-serif`;
+          ctx.textAlign = 'left';
+          ctx.fillText(`${task.percentComplete}%`, x + 5, y + BAR_HEIGHT / 2 + 4);
+        }
+      }
+
+      // Border for completed tasks
+      if (task.percentComplete === 100) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+        ctx.lineWidth = 2;
+        roundRect(ctx, x, y, width, BAR_HEIGHT, radius);
+        ctx.stroke();
+      }
+
+      // Subtask indicator (indentation effect)
+      if (task.isSubtask) {
+        ctx.fillStyle = 'rgba(0,0,0,0.1)';
+        ctx.fillRect(x, y, 3, BAR_HEIGHT);
+      }
+    }
+
+    function drawMilestone(x, y, color) {
+      const size = BAR_HEIGHT / 2;
+
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(Math.PI / 4);
+
+      ctx.fillStyle = color || COLORS.milestone;
+      ctx.fillRect(-size / 2, -size / 2, size, size);
+
+      ctx.strokeStyle = '#FFFFFF';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(-size / 2, -size / 2, size, size);
+
+      ctx.restore();
+    }
+
+    function drawTaskLabels() {
+      ctx.fillStyle = '#FAFAFA';
+      ctx.fillRect(0, chartArea.y, MARGIN.left - 10, tasks.length * ROW_HEIGHT);
+
+      tasks.forEach((task, index) => {
+        const y = taskToY(index) + BAR_HEIGHT / 2 + 4;
+        const x = task.isSubtask ? 45 : 30;
+
+        // Task name
+        ctx.fillStyle = COLORS.text;
+        ctx.font = `${task.isSubtask ? '' : 'bold '}${FONT_SIZE}px 'Segoe UI', sans-serif`;
+        ctx.textAlign = 'left';
+
+        const maxWidth = MARGIN.left - x - 20;
+        const displayName = truncateText(task.name, maxWidth);
+        ctx.fillText(displayName, x, y);
+
+        // Owner (if space permits)
+        if (task.owner && !task.isSubtask) {
+          ctx.fillStyle = COLORS.textLight;
+          ctx.font = `${FONT_SIZE - 2}px 'Segoe UI', sans-serif`;
+          const ownerY = y + 12;
+          if (ownerY < taskToY(index + 1)) {
+            ctx.fillText(task.owner, x, ownerY);
+          }
+        }
+      });
+
+      // Separator line
+      ctx.strokeStyle = COLORS.grid;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(MARGIN.left - 10, chartArea.y);
+      ctx.lineTo(MARGIN.left - 10, chartArea.y + (tasks.length * ROW_HEIGHT));
+      ctx.stroke();
+    }
+
+    // Utility functions
+    function roundRect(ctx, x, y, width, height, radius) {
+      ctx.beginPath();
+      ctx.moveTo(x + radius, y);
+      ctx.lineTo(x + width - radius, y);
+      ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+      ctx.lineTo(x + width, y + height - radius);
+      ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+      ctx.lineTo(x + radius, y + height);
+      ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+      ctx.lineTo(x, y + radius);
+      ctx.quadraticCurveTo(x, y, x + radius, y);
+      ctx.closePath();
+    }
+
+    function truncateText(text, maxWidth) {
+      ctx.font = `${FONT_SIZE}px 'Segoe UI', sans-serif`;
+      if (ctx.measureText(text).width <= maxWidth) {
+        return text;
+      }
+
+      let truncated = text;
+      while (ctx.measureText(truncated + '...').width > maxWidth && truncated.length > 0) {
+        truncated = truncated.slice(0, -1);
+      }
+      return truncated + '...';
+    }
+
+    function formatDate(date) {
+      return date.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      });
+    }
+
+    function getWeekNumber(date) {
+      const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+      const dayNum = d.getUTCDay() || 7;
+      d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+      const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+      return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+    }
+
+    function buildLegend() {
+      const legendEl = document.getElementById('legend');
+      let html = '';
+
+      // Color scheme legend
+      if (config.colorScheme === 'priority') {
+        html += '<div class="legend-item"><div class="legend-color" style="background:#DC3545"></div>High Priority</div>';
+        html += '<div class="legend-item"><div class="legend-color" style="background:#FFC107"></div>Medium Priority</div>';
+        html += '<div class="legend-item"><div class="legend-color" style="background:#28A745"></div>Low Priority</div>';
+      }
+
+      // Milestone legend
+      if (config.showMilestones) {
+        html += '<div class="legend-item"><div class="legend-diamond"></div>Milestone</div>';
+      }
+
+      // Today marker
+      if (config.showTodayMarker) {
+        html += '<div class="legend-item"><div class="legend-color" style="background:#FF5722;width:3px;"></div>Today</div>';
+      }
+
+      // Progress indicator
+      if (config.showPercentComplete) {
+        html += '<div class="legend-item"><div class="legend-color" style="background:linear-gradient(90deg,rgba(255,255,255,0.4) 50%,#2196F3 50%)"></div>% Complete</div>';
+      }
+
+      legendEl.innerHTML = html;
+    }
+
+    // Action functions
+    function saveToSheet() {
+      const btn = document.getElementById('saveBtn');
+      btn.disabled = true;
+      btn.textContent = 'Saving...';
+
+      document.getElementById('status').textContent = 'Saving to sheet...';
+      document.getElementById('status').className = 'status info';
+
+      // Get canvas as base64
+      const dataUrl = canvas.toDataURL('image/png');
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          if (result.success) {
+            document.getElementById('status').textContent = result.message;
+            document.getElementById('status').className = 'status success';
+            btn.textContent = 'Saved!';
+            setTimeout(() => {
+              btn.disabled = false;
+              btn.textContent = 'Save to Sheet';
+            }, 2000);
+          } else {
+            document.getElementById('status').textContent = result.message;
+            document.getElementById('status').className = 'status error';
+            btn.disabled = false;
+            btn.textContent = 'Save to Sheet';
+          }
+        })
+        .withFailureHandler(function(error) {
+          document.getElementById('status').textContent = 'Error: ' + error.message;
+          document.getElementById('status').className = 'status error';
+          btn.disabled = false;
+          btn.textContent = 'Save to Sheet';
+        })
+        .saveChartToSheet(dataUrl);
+    }
+
+    // Initialize
+    window.onload = function() {
+      setTimeout(render, 100);
+    };
+  </script>
+</body>
+</html>

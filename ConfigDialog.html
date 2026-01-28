@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      padding: 20px;
+      background: #fafafa;
+      color: #333;
+    }
+    .form-section {
+      background: white;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 15px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .section-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #4285F4;
+      margin-bottom: 15px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid #E8F0FE;
+    }
+    .form-group {
+      margin-bottom: 15px;
+    }
+    .form-group:last-child {
+      margin-bottom: 0;
+    }
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: #5f6368;
+      margin-bottom: 6px;
+    }
+    input[type="text"],
+    input[type="number"],
+    input[type="date"],
+    select {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #dadce0;
+      border-radius: 4px;
+      font-size: 14px;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    input:focus,
+    select:focus {
+      outline: none;
+      border-color: #4285F4;
+      box-shadow: 0 0 0 2px rgba(66, 133, 244, 0.2);
+    }
+    .checkbox-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .checkbox-group input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+    }
+    .checkbox-group label {
+      margin-bottom: 0;
+      cursor: pointer;
+    }
+    .row {
+      display: flex;
+      gap: 15px;
+    }
+    .col {
+      flex: 1;
+    }
+    .actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 20px;
+    }
+    .btn {
+      padding: 10px 24px;
+      border: none;
+      border-radius: 4px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: #4285F4;
+      color: white;
+    }
+    .btn-primary:hover {
+      background: #3367D6;
+    }
+    .btn-secondary {
+      background: #f1f3f4;
+      color: #5f6368;
+    }
+    .btn-secondary:hover {
+      background: #e8eaed;
+    }
+    .btn-reset {
+      background: none;
+      color: #EA4335;
+      padding-left: 0;
+    }
+    .btn-reset:hover {
+      text-decoration: underline;
+    }
+    .hint {
+      font-size: 11px;
+      color: #9aa0a6;
+      margin-top: 4px;
+    }
+    .status {
+      padding: 10px;
+      border-radius: 4px;
+      font-size: 13px;
+      margin-top: 15px;
+      display: none;
+    }
+    .status.success {
+      display: block;
+      background: #E8F5E9;
+      color: #2E7D32;
+    }
+    .status.error {
+      display: block;
+      background: #FFEBEE;
+      color: #C62828;
+    }
+  </style>
+</head>
+<body>
+  <form id="configForm" onsubmit="saveSettings(event)">
+    <!-- Date Range Section -->
+    <div class="form-section">
+      <div class="section-title">Date Range</div>
+      <div class="row">
+        <div class="col">
+          <div class="form-group">
+            <label for="startDate">Start Date</label>
+            <input type="date" id="startDate" name="startDate">
+            <div class="hint">Leave empty to auto-calculate from tasks</div>
+          </div>
+        </div>
+        <div class="col">
+          <div class="form-group">
+            <label for="endDate">End Date</label>
+            <input type="date" id="endDate" name="endDate">
+            <div class="hint">Leave empty to auto-calculate from tasks</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Grouping & Colors Section -->
+    <div class="form-section">
+      <div class="section-title">Grouping & Colors</div>
+      <div class="row">
+        <div class="col">
+          <div class="form-group">
+            <label for="swimlaneGrouping">Swimlane Grouping</label>
+            <select id="swimlaneGrouping" name="swimlaneGrouping">
+              <option value="Category">By Category/Team</option>
+              <option value="Owner">By Owner</option>
+              <option value="None">No Grouping</option>
+            </select>
+          </div>
+        </div>
+        <div class="col">
+          <div class="form-group">
+            <label for="colorScheme">Color Scheme</label>
+            <select id="colorScheme" name="colorScheme">
+              <option value="priority">By Priority</option>
+              <option value="taskType">By Task Type</option>
+              <option value="swimlane">By Swimlane</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Display Options Section -->
+    <div class="form-section">
+      <div class="section-title">Display Options</div>
+      <div class="row">
+        <div class="col">
+          <div class="form-group checkbox-group">
+            <input type="checkbox" id="showDependencies" name="showDependencies">
+            <label for="showDependencies">Show Dependencies</label>
+          </div>
+          <div class="form-group checkbox-group">
+            <input type="checkbox" id="showPercentComplete" name="showPercentComplete">
+            <label for="showPercentComplete">Show % Complete</label>
+          </div>
+        </div>
+        <div class="col">
+          <div class="form-group checkbox-group">
+            <input type="checkbox" id="showMilestones" name="showMilestones">
+            <label for="showMilestones">Show Milestones</label>
+          </div>
+          <div class="form-group checkbox-group">
+            <input type="checkbox" id="showTodayMarker" name="showTodayMarker">
+            <label for="showTodayMarker">Show Today Marker</label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Layout Section -->
+    <div class="form-section">
+      <div class="section-title">Layout</div>
+      <div class="row">
+        <div class="col">
+          <div class="form-group">
+            <label for="barHeight">Bar Height (px)</label>
+            <input type="number" id="barHeight" name="barHeight" min="16" max="48" step="2">
+          </div>
+        </div>
+        <div class="col">
+          <div class="form-group">
+            <label for="barSpacing">Bar Spacing (px)</label>
+            <input type="number" id="barSpacing" name="barSpacing" min="4" max="20" step="2">
+          </div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="col">
+          <div class="form-group">
+            <label for="chartWidth">Chart Width (px)</label>
+            <input type="number" id="chartWidth" name="chartWidth" min="800" max="3000" step="100">
+          </div>
+        </div>
+        <div class="col">
+          <div class="form-group">
+            <label for="chartHeight">Chart Height (px)</label>
+            <input type="number" id="chartHeight" name="chartHeight" min="400" max="2000" step="100">
+          </div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="fontSize">Font Size (px)</label>
+        <input type="number" id="fontSize" name="fontSize" min="10" max="16" step="1">
+      </div>
+    </div>
+
+    <div class="status" id="status"></div>
+
+    <div class="actions">
+      <button type="button" class="btn btn-reset" onclick="resetDefaults()">Reset to Defaults</button>
+      <button type="button" class="btn btn-secondary" onclick="google.script.host.close()">Cancel</button>
+      <button type="submit" class="btn btn-primary">Save Settings</button>
+    </div>
+  </form>
+
+  <script>
+    // Default configuration
+    const DEFAULT_CONFIG = {
+      startDate: null,
+      endDate: null,
+      swimlaneGrouping: 'Category',
+      colorScheme: 'priority',
+      showDependencies: true,
+      showPercentComplete: true,
+      showMilestones: true,
+      showTodayMarker: true,
+      barHeight: 24,
+      barSpacing: 8,
+      fontSize: 12,
+      chartWidth: 1200,
+      chartHeight: 800
+    };
+
+    // Load current config on page load
+    google.script.run
+      .withSuccessHandler(loadConfig)
+      .withFailureHandler(handleError)
+      .getConfigForDialog();
+
+    function loadConfig(config) {
+      const form = document.getElementById('configForm');
+
+      // Date fields
+      if (config.startDate) {
+        document.getElementById('startDate').value = formatDateForInput(config.startDate);
+      }
+      if (config.endDate) {
+        document.getElementById('endDate').value = formatDateForInput(config.endDate);
+      }
+
+      // Select fields
+      document.getElementById('swimlaneGrouping').value = config.swimlaneGrouping || 'Category';
+      document.getElementById('colorScheme').value = config.colorScheme || 'priority';
+
+      // Checkbox fields
+      document.getElementById('showDependencies').checked = config.showDependencies !== false;
+      document.getElementById('showPercentComplete').checked = config.showPercentComplete !== false;
+      document.getElementById('showMilestones').checked = config.showMilestones !== false;
+      document.getElementById('showTodayMarker').checked = config.showTodayMarker !== false;
+
+      // Number fields
+      document.getElementById('barHeight').value = config.barHeight || 24;
+      document.getElementById('barSpacing').value = config.barSpacing || 8;
+      document.getElementById('chartWidth').value = config.chartWidth || 1200;
+      document.getElementById('chartHeight').value = config.chartHeight || 800;
+      document.getElementById('fontSize').value = config.fontSize || 12;
+    }
+
+    function formatDateForInput(dateStr) {
+      if (!dateStr) return '';
+      const date = new Date(dateStr);
+      return date.toISOString().split('T')[0];
+    }
+
+    function saveSettings(event) {
+      event.preventDefault();
+
+      const config = {
+        startDate: document.getElementById('startDate').value || null,
+        endDate: document.getElementById('endDate').value || null,
+        swimlaneGrouping: document.getElementById('swimlaneGrouping').value,
+        colorScheme: document.getElementById('colorScheme').value,
+        showDependencies: document.getElementById('showDependencies').checked,
+        showPercentComplete: document.getElementById('showPercentComplete').checked,
+        showMilestones: document.getElementById('showMilestones').checked,
+        showTodayMarker: document.getElementById('showTodayMarker').checked,
+        barHeight: parseInt(document.getElementById('barHeight').value) || 24,
+        barSpacing: parseInt(document.getElementById('barSpacing').value) || 8,
+        chartWidth: parseInt(document.getElementById('chartWidth').value) || 1200,
+        chartHeight: parseInt(document.getElementById('chartHeight').value) || 800,
+        fontSize: parseInt(document.getElementById('fontSize').value) || 12
+      };
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          showStatus('Settings saved successfully!', 'success');
+          setTimeout(function() {
+            google.script.host.close();
+          }, 1000);
+        })
+        .withFailureHandler(handleError)
+        .saveConfigFromDialog(config);
+    }
+
+    function resetDefaults() {
+      loadConfig(DEFAULT_CONFIG);
+      showStatus('Reset to defaults. Click Save to apply.', 'success');
+    }
+
+    function showStatus(message, type) {
+      const status = document.getElementById('status');
+      status.textContent = message;
+      status.className = 'status ' + type;
+    }
+
+    function handleError(error) {
+      showStatus('Error: ' + error.message, 'error');
+    }
+  </script>
+</body>
+</html>

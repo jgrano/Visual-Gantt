@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      padding: 20px;
+      background: #fafafa;
+    }
+    .container {
+      text-align: center;
+    }
+    h3 {
+      color: #333;
+      margin-bottom: 20px;
+    }
+    .icon {
+      font-size: 48px;
+      margin-bottom: 15px;
+    }
+    p {
+      color: #666;
+      margin-bottom: 20px;
+      font-size: 14px;
+    }
+    .actions {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+    }
+    .btn {
+      padding: 12px 24px;
+      border: none;
+      border-radius: 4px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: #EA4335;
+      color: white;
+    }
+    .btn-primary:hover {
+      background: #D33828;
+    }
+    .btn-secondary {
+      background: #f1f3f4;
+      color: #5f6368;
+    }
+    .btn-secondary:hover {
+      background: #e8eaed;
+    }
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .status {
+      margin-top: 20px;
+      padding: 10px;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+    .status.success {
+      background: #E8F5E9;
+      color: #2E7D32;
+    }
+    .status.error {
+      background: #FFEBEE;
+      color: #C62828;
+    }
+    .status.info {
+      background: #E3F2FD;
+      color: #1565C0;
+    }
+    .spinner {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 2px solid #e0e0e0;
+      border-top-color: #EA4335;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-right: 8px;
+      vertical-align: middle;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .download-link {
+      display: none;
+      margin-top: 15px;
+    }
+    .download-link a {
+      color: #EA4335;
+      text-decoration: none;
+      font-weight: 500;
+    }
+    .download-link a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="icon">📄</div>
+    <h3>Export Timeline as PDF</h3>
+    <p>Generate a PDF document of your timeline for printing and sharing with stakeholders.</p>
+
+    <div class="actions">
+      <button class="btn btn-secondary" onclick="google.script.host.close()">Cancel</button>
+      <button class="btn btn-primary" id="exportBtn" onclick="startExport()">Export PDF</button>
+    </div>
+
+    <div class="status" id="status" style="display:none;"></div>
+    <div class="download-link" id="downloadLink"></div>
+  </div>
+
+  <script>
+    function startExport() {
+      const btn = document.getElementById('exportBtn');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>Exporting...';
+
+      showStatus('Generating PDF...', 'info');
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          if (result.success) {
+            showStatus('Export complete! File saved to Google Drive.', 'success');
+            document.getElementById('downloadLink').style.display = 'block';
+            document.getElementById('downloadLink').innerHTML =
+              '<a href="' + result.url + '" target="_blank">Download ' + result.filename + '</a>';
+          } else {
+            showStatus(result.message, 'error');
+          }
+          resetButton();
+        })
+        .withFailureHandler(function(error) {
+          showStatus('Error: ' + error.message, 'error');
+          resetButton();
+        })
+        .exportTimelineAsPdf();
+    }
+
+    function showStatus(message, type) {
+      const status = document.getElementById('status');
+      status.textContent = message;
+      status.className = 'status ' + type;
+      status.style.display = 'block';
+    }
+
+    function resetButton() {
+      const btn = document.getElementById('exportBtn');
+      btn.disabled = false;
+      btn.textContent = 'Export PDF';
+    }
+  </script>
+</body>
+</html>

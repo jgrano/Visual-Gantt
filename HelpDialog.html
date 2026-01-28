@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      padding: 20px;
+      background: #fafafa;
+      color: #333;
+      line-height: 1.6;
+    }
+    h2 {
+      color: #4285F4;
+      margin-bottom: 20px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #E8F0FE;
+    }
+    h3 {
+      color: #333;
+      margin: 20px 0 10px 0;
+      font-size: 16px;
+    }
+    p {
+      margin-bottom: 10px;
+      font-size: 14px;
+    }
+    .section {
+      background: white;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 15px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    ul {
+      margin-left: 20px;
+      margin-bottom: 15px;
+    }
+    li {
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+    code {
+      background: #f1f3f4;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-size: 13px;
+    }
+    .tip {
+      background: #E8F5E9;
+      border-left: 4px solid #4CAF50;
+      padding: 12px 15px;
+      margin: 15px 0;
+      border-radius: 0 4px 4px 0;
+      font-size: 13px;
+    }
+    .warning {
+      background: #FFF3E0;
+      border-left: 4px solid #FF9800;
+      padding: 12px 15px;
+      margin: 15px 0;
+      border-radius: 0 4px 4px 0;
+      font-size: 13px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 15px 0;
+      font-size: 13px;
+    }
+    th, td {
+      border: 1px solid #dadce0;
+      padding: 10px;
+      text-align: left;
+    }
+    th {
+      background: #f8f9fa;
+      font-weight: 600;
+    }
+    .close-btn {
+      display: block;
+      width: 100%;
+      padding: 12px;
+      background: #4285F4;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      margin-top: 20px;
+    }
+    .close-btn:hover {
+      background: #3367D6;
+    }
+  </style>
+</head>
+<body>
+  <h2>Visual Gantt Help Guide</h2>
+
+  <div class="section">
+    <h3>Getting Started</h3>
+    <ol>
+      <li><strong>Setup Data Sheet:</strong> Click <code>Visual Gantt > Setup Data Sheet</code> to create the project data template.</li>
+      <li><strong>Add Tasks:</strong> Fill in your project tasks in the data sheet with required information.</li>
+      <li><strong>Generate Timeline:</strong> Click <code>Visual Gantt > Generate Timeline</code> to create your Gantt chart.</li>
+    </ol>
+
+    <div class="tip">
+      <strong>Quick Start:</strong> Use <code>Visual Gantt > Create Sample Data</code> to see an example project with realistic data.
+    </div>
+  </div>
+
+  <div class="section">
+    <h3>Data Sheet Columns</h3>
+    <table>
+      <tr>
+        <th>Column</th>
+        <th>Required</th>
+        <th>Description</th>
+      </tr>
+      <tr>
+        <td>Task ID</td>
+        <td>Yes</td>
+        <td>Unique identifier for the task (e.g., MECH-001)</td>
+      </tr>
+      <tr>
+        <td>Task Name</td>
+        <td>Yes</td>
+        <td>Descriptive name of the task</td>
+      </tr>
+      <tr>
+        <td>Start Date</td>
+        <td>Yes</td>
+        <td>When the task begins</td>
+      </tr>
+      <tr>
+        <td>End Date</td>
+        <td>*</td>
+        <td>When the task ends (or provide Duration)</td>
+      </tr>
+      <tr>
+        <td>Duration (Days)</td>
+        <td>*</td>
+        <td>Task length in days (or provide End Date)</td>
+      </tr>
+      <tr>
+        <td>Owner</td>
+        <td>No</td>
+        <td>Person responsible for the task</td>
+      </tr>
+      <tr>
+        <td>% Complete</td>
+        <td>No</td>
+        <td>Progress percentage (0-100)</td>
+      </tr>
+      <tr>
+        <td>Priority</td>
+        <td>No</td>
+        <td>High, Medium, or Low</td>
+      </tr>
+      <tr>
+        <td>Jira Ticket</td>
+        <td>No</td>
+        <td>URL link to Jira issue</td>
+      </tr>
+      <tr>
+        <td>Parent Task</td>
+        <td>No</td>
+        <td>Task ID of parent (for subtasks)</td>
+      </tr>
+      <tr>
+        <td>Dependencies</td>
+        <td>No</td>
+        <td>Comma-separated Task IDs that must complete first</td>
+      </tr>
+      <tr>
+        <td>Task Type</td>
+        <td>No</td>
+        <td>Task or Milestone</td>
+      </tr>
+      <tr>
+        <td>Swimlane/Category</td>
+        <td>No</td>
+        <td>Team or category for grouping</td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="section">
+    <h3>Configuration Options</h3>
+    <p>Access settings via <code>Visual Gantt > Configure Settings</code>:</p>
+    <ul>
+      <li><strong>Date Range:</strong> Set custom start/end dates or auto-calculate from tasks</li>
+      <li><strong>Swimlane Grouping:</strong> Group tasks by Category, Owner, or None</li>
+      <li><strong>Color Scheme:</strong> Color bars by Priority, Task Type, or Swimlane</li>
+      <li><strong>Display Options:</strong> Toggle dependencies, progress bars, milestones, and today marker</li>
+      <li><strong>Layout:</strong> Adjust bar height, spacing, chart dimensions, and font size</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h3>Working with Dependencies</h3>
+    <p>Dependencies show which tasks must complete before others can start:</p>
+    <ul>
+      <li>Enter dependency Task IDs in the Dependencies column</li>
+      <li>Separate multiple dependencies with commas (e.g., <code>MECH-001, ELEC-002</code>)</li>
+      <li>Dependencies are shown as arrows connecting tasks</li>
+    </ul>
+
+    <div class="warning">
+      <strong>Note:</strong> Circular dependencies (A depends on B, B depends on A) will be detected and reported as errors.
+    </div>
+  </div>
+
+  <div class="section">
+    <h3>Milestones</h3>
+    <p>Milestones are key project events shown as diamond markers:</p>
+    <ul>
+      <li>Set <code>Task Type</code> to "Milestone"</li>
+      <li>Milestones only need a Start Date (End Date will be set automatically)</li>
+      <li>Use milestones for reviews, deadlines, and deliverables</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h3>Export Options</h3>
+    <ul>
+      <li><strong>Save to Sheet:</strong> Click "Save to Sheet" in the timeline view to embed the chart in your spreadsheet</li>
+      <li><strong>Export as PNG:</strong> Download a high-quality image for presentations</li>
+      <li><strong>Export as PDF:</strong> Create a PDF document for printing or email</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h3>Tips for Best Results</h3>
+    <ul>
+      <li>Use consistent naming conventions for Task IDs</li>
+      <li>Group related tasks with the same Swimlane/Category</li>
+      <li>Keep task names concise (they may be truncated in the timeline)</li>
+      <li>Update % Complete regularly to track progress</li>
+      <li>For large projects (100+ tasks), increase chart dimensions in settings</li>
+    </ul>
+  </div>
+
+  <button class="close-btn" onclick="google.script.host.close()">Close</button>
+</body>
+</html>
