@@ -12,6 +12,7 @@
 
 const CONFIG_KEY = 'visualGanttConfig';
 const JIRA_CONFIG_KEY = 'visualGanttJiraConfig';
+const SMARTSHEET_CONFIG_KEY = 'visualGanttSmartsheetConfig';
 const DATA_SHEET_NAME = 'Project Data';
 const TIMELINE_SHEET_NAME = 'Timeline View';
 
@@ -80,6 +81,40 @@ const JIRA_PRIORITY_MAPPING = {
   'Lowest': 'Low'
 };
 
+// Default Smartsheet configuration
+const DEFAULT_SMARTSHEET_CONFIG = {
+  apiToken: '',           // Smartsheet API access token (stored securely)
+  sheetId: '',            // Selected sheet ID
+  sheetName: '',          // Selected sheet name
+  includeChildRows: true, // Include hierarchical child rows
+  syncDependencies: true, // Sync predecessor dependencies
+  columnMapping: {        // Maps Visual Gantt fields to Smartsheet column IDs
+    colTaskId: '',
+    colTaskName: '',
+    colStartDate: '',
+    colEndDate: '',
+    colDuration: '',
+    colOwner: '',
+    colPercentComplete: '',
+    colPriority: '',
+    colPredecessors: '',
+    colCategory: ''
+  },
+  lastSyncTime: null      // Timestamp of last sync
+};
+
+// Smartsheet API base URL
+const SMARTSHEET_API_BASE = 'https://api.smartsheet.com/2.0';
+
+// Smartsheet priority mapping
+const SMARTSHEET_PRIORITY_MAPPING = {
+  'Critical': 'High',
+  'High': 'High',
+  'Medium': 'Medium',
+  'Normal': 'Medium',
+  'Low': 'Low'
+};
+
 const DEFAULT_CONFIG = {
   startDate: null,
   endDate: null,
@@ -144,6 +179,18 @@ function onOpen(e) {
     .addSeparator()
     .addItem('View Sync Status', 'showSyncStatus');
 
+  // Create Smartsheet submenu
+  const smartsheetMenu = ui.createMenu('Smartsheet')
+    .addItem('Configure Connection', 'showSmartsheetConfigDialog')
+    .addSeparator()
+    .addItem('Pull from Smartsheet', 'pullFromSmartsheet')
+    .addItem('Pull Selected Rows', 'pullSelectedFromSmartsheet')
+    .addSeparator()
+    .addItem('Push to Smartsheet', 'pushToSmartsheet')
+    .addItem('Push Selected Rows', 'pushSelectedToSmartsheet')
+    .addSeparator()
+    .addItem('View Sync Status', 'showSmartsheetSyncStatus');
+
   ui.createMenu('Visual Gantt')
     .addItem('Generate Timeline', 'generateTimeline')
     .addItem('Refresh Timeline', 'refreshTimeline')
@@ -151,6 +198,7 @@ function onOpen(e) {
     .addItem('Configure Settings', 'showConfigDialog')
     .addSeparator()
     .addSubMenu(jiraMenu)
+    .addSubMenu(smartsheetMenu)
     .addSeparator()
     .addItem('Export as PNG', 'exportAsPng')
     .addItem('Export as PDF', 'exportAsPdf')
@@ -1019,7 +1067,7 @@ function showAbout() {
   const ui = SpreadsheetApp.getUi();
   ui.alert(
     'About Visual Gantt',
-    'Visual Gantt v1.0.0\n\n' +
+    'Visual Gantt v1.1.0\n\n' +
     'A professional Gantt chart timeline add-on for Google Sheets.\n\n' +
     'Features:\n' +
     '- Professional timeline visualization\n' +
@@ -1027,7 +1075,9 @@ function showAbout() {
     '- Milestone markers\n' +
     '- Progress tracking\n' +
     '- Dependency arrows\n' +
-    '- PNG/PDF export\n\n' +
+    '- PNG/PDF export\n' +
+    '- Jira Cloud integration\n' +
+    '- Smartsheet integration\n\n' +
     'For support, please contact your administrator.',
     ui.ButtonSet.OK
   );
@@ -1959,4 +2009,1063 @@ function markRowAsModified(e) {
  */
 function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
+}
+
+// ============================================================================
+// SMARTSHEET INTEGRATION
+// ============================================================================
+
+/**
+ * Gets Smartsheet configuration
+ */
+function getSmartsheetConfig() {
+  const userProperties = PropertiesService.getUserProperties();
+  const savedConfig = userProperties.getProperty(SMARTSHEET_CONFIG_KEY);
+
+  if (savedConfig) {
+    try {
+      const parsed = JSON.parse(savedConfig);
+      return {
+        ...DEFAULT_SMARTSHEET_CONFIG,
+        ...parsed,
+        columnMapping: { ...DEFAULT_SMARTSHEET_CONFIG.columnMapping, ...(parsed.columnMapping || {}) }
+      };
+    } catch (e) {
+      return { ...DEFAULT_SMARTSHEET_CONFIG };
+    }
+  }
+
+  return { ...DEFAULT_SMARTSHEET_CONFIG };
+}
+
+/**
+ * Saves Smartsheet configuration
+ */
+function saveSmartsheetConfig(config) {
+  const userProperties = PropertiesService.getUserProperties();
+  userProperties.setProperty(SMARTSHEET_CONFIG_KEY, JSON.stringify(config));
+}
+
+/**
+ * Shows Smartsheet configuration dialog
+ */
+function showSmartsheetConfigDialog() {
+  const html = HtmlService.createHtmlOutputFromFile('SmartsheetConfigDialog')
+    .setWidth(600)
+    .setHeight(750)
+    .setTitle('Smartsheet Configuration');
+
+  SpreadsheetApp.getUi().showModalDialog(html, 'Smartsheet Configuration');
+}
+
+/**
+ * Gets Smartsheet config for dialog
+ */
+function getSmartsheetConfigForDialog() {
+  const config = getSmartsheetConfig();
+  // Don't send the full API token to client, just indicate if it's set
+  return {
+    ...config,
+    apiToken: config.apiToken ? '••••••••' : ''
+  };
+}
+
+/**
+ * Saves Smartsheet config from dialog
+ */
+function saveSmartsheetConfigFromDialog(config) {
+  const existingConfig = getSmartsheetConfig();
+
+  // If apiToken is the masked value, keep the existing token
+  if (config.apiToken === '••••••••') {
+    config.apiToken = existingConfig.apiToken;
+  }
+
+  saveSmartsheetConfig(config);
+  return { success: true };
+}
+
+/**
+ * Makes an authenticated request to Smartsheet API
+ */
+function smartsheetApiRequest(endpoint, method, payload, token) {
+  const config = getSmartsheetConfig();
+  const apiToken = token || config.apiToken;
+
+  if (!apiToken) {
+    throw new Error('Smartsheet not configured. Please configure connection first.');
+  }
+
+  const url = `${SMARTSHEET_API_BASE}${endpoint}`;
+
+  const options = {
+    method: method || 'GET',
+    headers: {
+      'Authorization': 'Bearer ' + apiToken,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    },
+    muteHttpExceptions: true
+  };
+
+  if (payload) {
+    options.payload = JSON.stringify(payload);
+  }
+
+  const response = UrlFetchApp.fetch(url, options);
+  const responseCode = response.getResponseCode();
+  const responseText = response.getContentText();
+
+  if (responseCode >= 400) {
+    let errorMessage = `HTTP ${responseCode}`;
+    try {
+      const errorJson = JSON.parse(responseText);
+      errorMessage = errorJson.message || errorJson.errorCode || errorMessage;
+    } catch (e) {
+      errorMessage = responseText || errorMessage;
+    }
+    throw new Error(errorMessage);
+  }
+
+  return responseText ? JSON.parse(responseText) : null;
+}
+
+/**
+ * Tests Smartsheet connection
+ */
+function testSmartsheetConnection() {
+  const config = getSmartsheetConfig();
+  return testSmartsheetConnectionWithToken(config.apiToken);
+}
+
+/**
+ * Tests Smartsheet connection with a specific token
+ */
+function testSmartsheetConnectionWithToken(token) {
+  if (!token || token === '••••••••') {
+    return { success: false, message: 'Please enter an API token.' };
+  }
+
+  try {
+    const response = smartsheetApiRequest('/users/me', 'GET', null, token);
+    return {
+      success: true,
+      message: `Connected as ${response.firstName} ${response.lastName} (${response.email})`
+    };
+  } catch (e) {
+    return { success: false, message: 'Connection failed: ' + e.message };
+  }
+}
+
+/**
+ * Loads list of available Smartsheet sheets
+ */
+function loadSmartsheetList() {
+  const config = getSmartsheetConfig();
+  return loadSmartsheetListWithToken(config.apiToken);
+}
+
+/**
+ * Loads list of available Smartsheet sheets with a specific token
+ */
+function loadSmartsheetListWithToken(token) {
+  if (!token || token === '••••••••') {
+    return { success: false, message: 'Please enter an API token.' };
+  }
+
+  try {
+    const response = smartsheetApiRequest('/sheets?includeAll=true', 'GET', null, token);
+    const sheets = response.data.map(sheet => ({
+      id: sheet.id,
+      name: sheet.name,
+      accessLevel: sheet.accessLevel
+    }));
+
+    // Sort by name
+    sheets.sort((a, b) => a.name.localeCompare(b.name));
+
+    return { success: true, sheets: sheets };
+  } catch (e) {
+    return { success: false, message: 'Failed to load sheets: ' + e.message };
+  }
+}
+
+/**
+ * Loads columns for a specific Smartsheet
+ */
+function loadSmartsheetColumns(sheetId) {
+  const config = getSmartsheetConfig();
+  return loadSmartsheetColumnsWithToken(config.apiToken, sheetId);
+}
+
+/**
+ * Loads columns for a specific Smartsheet with a specific token
+ */
+function loadSmartsheetColumnsWithToken(token, sheetId) {
+  if (!token || token === '••••••••') {
+    return { success: false, message: 'Please enter an API token.' };
+  }
+
+  if (!sheetId) {
+    return { success: false, message: 'Please select a sheet.' };
+  }
+
+  try {
+    const response = smartsheetApiRequest(`/sheets/${sheetId}?include=columns`, 'GET', null, token);
+    const columns = response.columns.map(col => ({
+      id: col.id,
+      title: col.title,
+      type: col.type,
+      primary: col.primary || false,
+      index: col.index
+    }));
+
+    return { success: true, columns: columns };
+  } catch (e) {
+    return { success: false, message: 'Failed to load columns: ' + e.message };
+  }
+}
+
+/**
+ * Fetches rows from Smartsheet
+ */
+function fetchSmartsheetRows() {
+  const config = getSmartsheetConfig();
+
+  if (!config.sheetId) {
+    throw new Error('No Smartsheet selected. Please configure connection first.');
+  }
+
+  // Fetch the sheet with all data
+  const response = smartsheetApiRequest(
+    `/sheets/${config.sheetId}?include=attachments,discussions,rowPermalink&level=2`
+  );
+
+  return {
+    sheet: response,
+    columns: response.columns,
+    rows: response.rows
+  };
+}
+
+/**
+ * Converts a Smartsheet row to a sheet row format
+ */
+function smartsheetRowToLocalRow(row, columns, config) {
+  const columnMap = {};
+  columns.forEach(col => {
+    columnMap[col.id] = col;
+  });
+
+  // Get cell values by column ID
+  const cellMap = {};
+  row.cells.forEach(cell => {
+    cellMap[cell.columnId] = cell;
+  });
+
+  // Helper to get cell value
+  function getCellValue(mappingKey) {
+    const colId = config.columnMapping[mappingKey];
+    if (!colId) return null;
+
+    const cell = cellMap[colId];
+    if (!cell) return null;
+
+    // Handle different value types
+    if (cell.displayValue !== undefined) {
+      return cell.displayValue;
+    }
+    if (cell.value !== undefined) {
+      return cell.value;
+    }
+    if (cell.objectValue) {
+      // Handle contact lists
+      if (cell.objectValue.objectType === 'MULTI_CONTACT') {
+        return cell.objectValue.values.map(v => v.name || v.email).join(', ');
+      }
+      if (cell.objectValue.name) {
+        return cell.objectValue.name;
+      }
+    }
+    return null;
+  }
+
+  // Helper to parse date
+  function parseSmartsheetDate(value) {
+    if (!value) return null;
+    const parsed = new Date(value);
+    return isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  // Extract values using column mapping
+  const taskId = getCellValue('colTaskId') || `SS-${row.id}`;
+  const taskName = getCellValue('colTaskName') || '';
+  const startDateRaw = getCellValue('colStartDate');
+  const endDateRaw = getCellValue('colEndDate');
+  const durationRaw = getCellValue('colDuration');
+  const owner = getCellValue('colOwner') || '';
+  const percentCompleteRaw = getCellValue('colPercentComplete');
+  const priorityRaw = getCellValue('colPriority');
+  const predecessorsRaw = getCellValue('colPredecessors');
+  const category = getCellValue('colCategory') || 'Default';
+
+  // Parse dates
+  const startDate = parseSmartsheetDate(startDateRaw);
+  const endDate = parseSmartsheetDate(endDateRaw);
+
+  // Parse duration
+  let duration = null;
+  if (durationRaw) {
+    // Duration might be in format "5d" or just "5"
+    const durationMatch = String(durationRaw).match(/(\d+)/);
+    if (durationMatch) {
+      duration = parseInt(durationMatch[1], 10);
+    }
+  }
+
+  // Parse percent complete
+  let percentComplete = 0;
+  if (percentCompleteRaw !== null && percentCompleteRaw !== undefined) {
+    if (typeof percentCompleteRaw === 'number') {
+      // Might be 0-1 or 0-100
+      percentComplete = percentCompleteRaw > 1 ? percentCompleteRaw : percentCompleteRaw * 100;
+    } else {
+      const percentMatch = String(percentCompleteRaw).match(/(\d+)/);
+      if (percentMatch) {
+        percentComplete = parseInt(percentMatch[1], 10);
+      }
+    }
+  }
+
+  // Map priority
+  const priority = SMARTSHEET_PRIORITY_MAPPING[priorityRaw] || 'Medium';
+
+  // Parse predecessors
+  let dependencies = [];
+  if (predecessorsRaw && config.syncDependencies) {
+    // Predecessors in Smartsheet are typically in format "1, 2FS+1d" or just row numbers
+    // We'll convert these to task IDs later
+    const predParts = String(predecessorsRaw).split(',');
+    predParts.forEach(pred => {
+      const trimmed = pred.trim();
+      // Extract just the row number (before any FS, SS, FF, SF and lag)
+      const match = trimmed.match(/^(\d+)/);
+      if (match) {
+        dependencies.push(`SS-ROW-${match[1]}`); // Temporary placeholder
+      }
+    });
+  }
+
+  // Build Smartsheet URL
+  const smartsheetUrl = row.permalink || `https://app.smartsheet.com/sheets/${config.sheetId}?rowId=${row.id}`;
+
+  // Determine parent task (for hierarchical rows)
+  const parentTask = row.parentId ? `SS-${row.parentId}` : '';
+
+  // Determine task type (based on duration or if it has no children)
+  let taskType = 'Task';
+  if (duration === 0 || (startDate && endDate && startDate.getTime() === endDate.getTime())) {
+    taskType = 'Milestone';
+  }
+
+  return {
+    taskId: String(taskId).trim(),
+    taskName: String(taskName).trim(),
+    startDate,
+    endDate,
+    duration,
+    owner: String(owner).trim(),
+    percentComplete: Math.round(percentComplete),
+    priority,
+    smartsheetUrl,
+    parentTask,
+    dependencies: dependencies.join(','),
+    taskType,
+    swimlane: String(category).trim(),
+    modified: '',
+    // Store original Smartsheet data for sync
+    _smartsheetRowId: row.id,
+    _smartsheetRowNumber: row.rowNumber,
+    _smartsheetParentId: row.parentId,
+    _smartsheetIndent: row.indent || 0
+  };
+}
+
+/**
+ * Converts Smartsheet rows to local format, resolving dependencies
+ */
+function convertSmartsheetRowsToLocal(rows, columns, config) {
+  // First pass: convert all rows
+  const localRows = rows.map(row => smartsheetRowToLocalRow(row, columns, config));
+
+  // Build row number to task ID mapping for dependency resolution
+  const rowNumberToTaskId = {};
+  localRows.forEach(row => {
+    if (row._smartsheetRowNumber) {
+      rowNumberToTaskId[row._smartsheetRowNumber] = row.taskId;
+    }
+  });
+
+  // Second pass: resolve dependency references
+  localRows.forEach(row => {
+    if (row.dependencies) {
+      const deps = row.dependencies.split(',').filter(d => d);
+      const resolvedDeps = deps.map(dep => {
+        const match = dep.match(/SS-ROW-(\d+)/);
+        if (match) {
+          const rowNum = parseInt(match[1], 10);
+          return rowNumberToTaskId[rowNum] || dep;
+        }
+        return dep;
+      }).filter(d => d && !d.startsWith('SS-ROW-'));
+      row.dependencies = resolvedDeps.join(',');
+    }
+  });
+
+  return localRows;
+}
+
+/**
+ * Converts a local row to Smartsheet row array
+ */
+function localRowToSheetRow(localRow) {
+  return [
+    localRow.taskId,
+    localRow.taskName,
+    localRow.startDate,
+    localRow.endDate,
+    localRow.duration || '',
+    localRow.owner,
+    localRow.percentComplete,
+    localRow.priority,
+    localRow.smartsheetUrl || '',
+    localRow.parentTask,
+    localRow.dependencies,
+    localRow.taskType,
+    localRow.swimlane,
+    ''  // Modified = empty (fresh from Smartsheet)
+  ];
+}
+
+/**
+ * Detects conflicts between Smartsheet data and sheet data
+ */
+function detectSmartsheetConflicts(smartsheetRows, sheetDataMap) {
+  const conflicts = [];
+
+  smartsheetRows.forEach(ssRow => {
+    const sheetEntry = sheetDataMap.get(ssRow.taskId);
+
+    if (sheetEntry) {
+      const sheetRow = sheetEntry.data;
+      const isModified = String(sheetRow[COL.MODIFIED]).toLowerCase() === 'yes';
+
+      if (isModified) {
+        // Check for actual differences
+        const diffs = [];
+
+        // Compare dates
+        const sheetStartDate = parseDate(sheetRow[COL.START_DATE]);
+        const sheetEndDate = parseDate(sheetRow[COL.END_DATE]);
+
+        if (ssRow.startDate && sheetStartDate &&
+            ssRow.startDate.getTime() !== sheetStartDate.getTime()) {
+          diffs.push({
+            field: 'Start Date',
+            smartsheetValue: formatDateForDisplay(ssRow.startDate),
+            sheetValue: formatDateForDisplay(sheetStartDate)
+          });
+        }
+
+        if (ssRow.endDate && sheetEndDate &&
+            ssRow.endDate.getTime() !== sheetEndDate.getTime()) {
+          diffs.push({
+            field: 'End Date',
+            smartsheetValue: formatDateForDisplay(ssRow.endDate),
+            sheetValue: formatDateForDisplay(sheetEndDate)
+          });
+        }
+
+        // Compare owner
+        if (ssRow.owner !== String(sheetRow[COL.OWNER]).trim()) {
+          diffs.push({
+            field: 'Owner',
+            smartsheetValue: ssRow.owner || '(none)',
+            sheetValue: String(sheetRow[COL.OWNER]).trim() || '(none)'
+          });
+        }
+
+        // Compare percent complete
+        const sheetPercent = Number(sheetRow[COL.PERCENT_COMPLETE]) || 0;
+        if (ssRow.percentComplete !== sheetPercent) {
+          diffs.push({
+            field: '% Complete',
+            smartsheetValue: ssRow.percentComplete + '%',
+            sheetValue: sheetPercent + '%'
+          });
+        }
+
+        // Compare priority
+        if (ssRow.priority !== String(sheetRow[COL.PRIORITY]).trim()) {
+          diffs.push({
+            field: 'Priority',
+            smartsheetValue: ssRow.priority,
+            sheetValue: String(sheetRow[COL.PRIORITY]).trim()
+          });
+        }
+
+        if (diffs.length > 0) {
+          conflicts.push({
+            taskId: ssRow.taskId,
+            taskName: ssRow.taskName,
+            rowIndex: sheetEntry.rowIndex,
+            diffs: diffs,
+            smartsheetData: ssRow,
+            sheetData: sheetRow
+          });
+        }
+      }
+    }
+  });
+
+  return conflicts;
+}
+
+/**
+ * Main pull function - fetches from Smartsheet and updates sheet
+ */
+function pullFromSmartsheet() {
+  const ui = SpreadsheetApp.getUi();
+
+  try {
+    const config = getSmartsheetConfig();
+
+    if (!config.apiToken || !config.sheetId) {
+      ui.alert('Not Configured', 'Please configure Smartsheet connection first.', ui.ButtonSet.OK);
+      return;
+    }
+
+    // Fetch data from Smartsheet
+    ui.alert('Pulling from Smartsheet', 'Fetching data from Smartsheet...', ui.ButtonSet.OK);
+
+    const { sheet, columns, rows } = fetchSmartsheetRows();
+
+    if (rows.length === 0) {
+      ui.alert('No Data', 'No rows found in the Smartsheet.', ui.ButtonSet.OK);
+      return;
+    }
+
+    // Convert to local format
+    const localRows = convertSmartsheetRowsToLocal(rows, columns, config);
+
+    // Filter out rows without task names
+    const validRows = localRows.filter(row => row.taskName);
+
+    if (validRows.length === 0) {
+      ui.alert('No Valid Data', 'No rows with task names found.', ui.ButtonSet.OK);
+      return;
+    }
+
+    // Get current sheet data
+    const sheetDataMap = getSheetDataMap();
+
+    // Detect conflicts
+    const conflicts = detectSmartsheetConflicts(validRows, sheetDataMap);
+
+    if (conflicts.length > 0) {
+      // Show conflict resolution dialog
+      showSmartsheetConflictDialog(validRows, conflicts);
+    } else {
+      // No conflicts, apply updates directly
+      applySmartsheetPull(validRows, []);
+      ui.alert('Pull Complete', `Successfully pulled ${validRows.length} rows from Smartsheet.`, ui.ButtonSet.OK);
+    }
+
+    // Update last sync time
+    config.lastSyncTime = new Date().toISOString();
+    saveSmartsheetConfig(config);
+
+  } catch (e) {
+    ui.alert('Error', 'Failed to pull from Smartsheet: ' + e.message, ui.ButtonSet.OK);
+  }
+}
+
+/**
+ * Shows Smartsheet conflict resolution dialog
+ */
+function showSmartsheetConflictDialog(smartsheetRows, conflicts) {
+  // Reuse the same conflict dialog with Smartsheet-specific data
+  const template = HtmlService.createTemplateFromFile('SmartsheetConflictDialog');
+  template.conflicts = JSON.stringify(conflicts);
+  template.smartsheetRowsJson = JSON.stringify(smartsheetRows);
+
+  const html = template.evaluate()
+    .setWidth(700)
+    .setHeight(600)
+    .setTitle('Resolve Smartsheet Conflicts');
+
+  SpreadsheetApp.getUi().showModalDialog(html, 'Resolve Smartsheet Conflicts');
+}
+
+/**
+ * Applies Smartsheet pull with conflict resolutions
+ * @param {Array} smartsheetRows - All rows from Smartsheet
+ * @param {Array} keepLocalIds - Task IDs where local changes should be kept
+ */
+function applySmartsheetPull(smartsheetRows, keepLocalIds) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let dataSheet = ss.getSheetByName(DATA_SHEET_NAME);
+
+  if (!dataSheet) {
+    setupDataSheet();
+    dataSheet = ss.getSheetByName(DATA_SHEET_NAME);
+  }
+
+  const keepLocalSet = new Set(keepLocalIds);
+  const sheetDataMap = getSheetDataMap();
+
+  // Prepare updates and inserts
+  const updates = [];
+  const inserts = [];
+
+  smartsheetRows.forEach(ssRow => {
+    const sheetEntry = sheetDataMap.get(ssRow.taskId);
+
+    if (sheetEntry) {
+      // Update existing row (unless keeping local)
+      if (!keepLocalSet.has(ssRow.taskId)) {
+        updates.push({
+          rowIndex: sheetEntry.rowIndex,
+          data: localRowToSheetRow(ssRow)
+        });
+      }
+    } else {
+      // Insert new row
+      inserts.push(localRowToSheetRow(ssRow));
+    }
+  });
+
+  // Apply updates
+  updates.forEach(update => {
+    dataSheet.getRange(update.rowIndex, 1, 1, COLUMN_HEADERS.length)
+      .setValues([update.data]);
+  });
+
+  // Apply inserts
+  if (inserts.length > 0) {
+    const lastRow = dataSheet.getLastRow();
+    dataSheet.getRange(lastRow + 1, 1, inserts.length, COLUMN_HEADERS.length)
+      .setValues(inserts);
+  }
+
+  return {
+    success: true,
+    updated: updates.length,
+    inserted: inserts.length
+  };
+}
+
+/**
+ * Pulls only selected rows from Smartsheet
+ */
+function pullSelectedFromSmartsheet() {
+  const ui = SpreadsheetApp.getUi();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getActiveSheet();
+
+  if (sheet.getName() !== DATA_SHEET_NAME) {
+    ui.alert('Wrong Sheet', `Please select rows in the "${DATA_SHEET_NAME}" sheet.`, ui.ButtonSet.OK);
+    return;
+  }
+
+  const selection = sheet.getActiveRange();
+  const startRow = selection.getRow();
+  const numRows = selection.getNumRows();
+
+  if (startRow < 2) {
+    ui.alert('Invalid Selection', 'Please select data rows (not the header).', ui.ButtonSet.OK);
+    return;
+  }
+
+  // Get task IDs from selected rows
+  const taskIds = [];
+  for (let i = 0; i < numRows; i++) {
+    const taskId = sheet.getRange(startRow + i, 1).getValue();
+    if (taskId) {
+      taskIds.push(String(taskId).trim());
+    }
+  }
+
+  if (taskIds.length === 0) {
+    ui.alert('No Tasks', 'No task IDs found in selection.', ui.ButtonSet.OK);
+    return;
+  }
+
+  try {
+    const config = getSmartsheetConfig();
+
+    // Fetch all data from Smartsheet
+    const { sheet: ssSheet, columns, rows } = fetchSmartsheetRows();
+
+    // Convert to local format
+    const localRows = convertSmartsheetRowsToLocal(rows, columns, config);
+
+    // Filter to only selected task IDs
+    const selectedRows = localRows.filter(row => taskIds.includes(row.taskId));
+
+    if (selectedRows.length === 0) {
+      ui.alert('No Matches', 'Selected tasks not found in Smartsheet.', ui.ButtonSet.OK);
+      return;
+    }
+
+    const sheetDataMap = getSheetDataMap();
+    const conflicts = detectSmartsheetConflicts(selectedRows, sheetDataMap);
+
+    if (conflicts.length > 0) {
+      showSmartsheetConflictDialog(selectedRows, conflicts);
+    } else {
+      applySmartsheetPull(selectedRows, []);
+      ui.alert('Pull Complete', `Successfully pulled ${selectedRows.length} rows.`, ui.ButtonSet.OK);
+    }
+
+  } catch (e) {
+    ui.alert('Error', 'Failed to pull from Smartsheet: ' + e.message, ui.ButtonSet.OK);
+  }
+}
+
+/**
+ * Pushes changes to Smartsheet
+ */
+function pushToSmartsheet() {
+  const ui = SpreadsheetApp.getUi();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const dataSheet = ss.getSheetByName(DATA_SHEET_NAME);
+
+  if (!dataSheet) {
+    ui.alert('No Data', 'Data sheet not found.', ui.ButtonSet.OK);
+    return;
+  }
+
+  const config = getSmartsheetConfig();
+  if (!config.apiToken || !config.sheetId) {
+    ui.alert('Not Configured', 'Please configure Smartsheet connection first.', ui.ButtonSet.OK);
+    return;
+  }
+
+  // Find all modified rows
+  const lastRow = dataSheet.getLastRow();
+  if (lastRow < 2) {
+    ui.alert('No Data', 'No tasks to push.', ui.ButtonSet.OK);
+    return;
+  }
+
+  const data = dataSheet.getRange(2, 1, lastRow - 1, COLUMN_HEADERS.length).getValues();
+  const modifiedRows = [];
+
+  data.forEach((row, index) => {
+    if (String(row[COL.MODIFIED]).toLowerCase() === 'yes') {
+      modifiedRows.push({
+        rowIndex: index + 2,
+        data: row
+      });
+    }
+  });
+
+  if (modifiedRows.length === 0) {
+    ui.alert('No Changes', 'No modified rows to push. Mark rows as "Yes" in the Modified column to push changes.', ui.ButtonSet.OK);
+    return;
+  }
+
+  const response = ui.alert(
+    'Push to Smartsheet',
+    `Push ${modifiedRows.length} modified row(s) to Smartsheet?\n\nThis will update: Start Date, End Date, Duration, Owner, % Complete, and Priority.`,
+    ui.ButtonSet.YES_NO
+  );
+
+  if (response !== ui.Button.YES) {
+    return;
+  }
+
+  const results = pushRowsToSmartsheet(modifiedRows);
+
+  // Clear modified flag for successful pushes
+  results.successful.forEach(taskId => {
+    const sheetDataMap = getSheetDataMap();
+    const entry = sheetDataMap.get(taskId);
+    if (entry) {
+      dataSheet.getRange(entry.rowIndex, COL.MODIFIED + 1).setValue('');
+    }
+  });
+
+  let message = `Successfully pushed ${results.successful.length} task(s).`;
+  if (results.failed.length > 0) {
+    message += `\n\nFailed to push ${results.failed.length} task(s):\n${results.failed.map(f => `${f.taskId}: ${f.error}`).join('\n')}`;
+  }
+
+  ui.alert('Push Complete', message, ui.ButtonSet.OK);
+}
+
+/**
+ * Pushes specific rows to Smartsheet
+ */
+function pushRowsToSmartsheet(rows) {
+  const config = getSmartsheetConfig();
+  const successful = [];
+  const failed = [];
+
+  // First, we need to map task IDs to Smartsheet row IDs
+  // Fetch current Smartsheet data
+  let smartsheetRowMap = {};
+  try {
+    const { rows: ssRows, columns } = fetchSmartsheetRows();
+    const localRows = convertSmartsheetRowsToLocal(ssRows, columns, config);
+    localRows.forEach(row => {
+      smartsheetRowMap[row.taskId] = row._smartsheetRowId;
+    });
+  } catch (e) {
+    return { successful: [], failed: rows.map(r => ({ taskId: String(r.data[COL.TASK_ID]), error: 'Failed to fetch Smartsheet data: ' + e.message })) };
+  }
+
+  // Build update payload
+  const rowUpdates = [];
+
+  rows.forEach(row => {
+    const taskId = String(row.data[COL.TASK_ID]).trim();
+    const ssRowId = smartsheetRowMap[taskId];
+
+    if (!ssRowId) {
+      failed.push({ taskId, error: 'Task not found in Smartsheet' });
+      return;
+    }
+
+    try {
+      const cells = [];
+
+      // Build cells array based on column mapping
+      const mapping = config.columnMapping;
+
+      // Start Date
+      if (mapping.colStartDate) {
+        const startDate = parseDate(row.data[COL.START_DATE]);
+        if (startDate) {
+          cells.push({
+            columnId: Number(mapping.colStartDate),
+            value: formatDateForSmartsheet(startDate)
+          });
+        }
+      }
+
+      // End Date
+      if (mapping.colEndDate) {
+        const endDate = parseDate(row.data[COL.END_DATE]);
+        if (endDate) {
+          cells.push({
+            columnId: Number(mapping.colEndDate),
+            value: formatDateForSmartsheet(endDate)
+          });
+        }
+      }
+
+      // Duration
+      if (mapping.colDuration) {
+        const duration = row.data[COL.DURATION];
+        if (duration) {
+          cells.push({
+            columnId: Number(mapping.colDuration),
+            value: duration
+          });
+        }
+      }
+
+      // Owner
+      if (mapping.colOwner) {
+        const owner = String(row.data[COL.OWNER]).trim();
+        if (owner) {
+          cells.push({
+            columnId: Number(mapping.colOwner),
+            value: owner
+          });
+        }
+      }
+
+      // % Complete
+      if (mapping.colPercentComplete) {
+        const percent = Number(row.data[COL.PERCENT_COMPLETE]) || 0;
+        cells.push({
+          columnId: Number(mapping.colPercentComplete),
+          value: percent / 100  // Smartsheet expects 0-1 for percentages
+        });
+      }
+
+      // Priority
+      if (mapping.colPriority) {
+        const priority = String(row.data[COL.PRIORITY]).trim();
+        if (priority) {
+          // Map back to Smartsheet priority values
+          const ssPriority = Object.keys(SMARTSHEET_PRIORITY_MAPPING).find(
+            k => SMARTSHEET_PRIORITY_MAPPING[k] === priority
+          ) || priority;
+          cells.push({
+            columnId: Number(mapping.colPriority),
+            value: ssPriority
+          });
+        }
+      }
+
+      if (cells.length > 0) {
+        rowUpdates.push({
+          id: ssRowId,
+          cells: cells,
+          _taskId: taskId
+        });
+      } else {
+        successful.push(taskId); // No cells to update, but not a failure
+      }
+
+    } catch (e) {
+      failed.push({ taskId, error: e.message });
+    }
+  });
+
+  // Send batch update to Smartsheet
+  if (rowUpdates.length > 0) {
+    try {
+      // Smartsheet allows up to 500 rows per request
+      const batchSize = 500;
+      for (let i = 0; i < rowUpdates.length; i += batchSize) {
+        const batch = rowUpdates.slice(i, i + batchSize);
+        const payload = batch.map(r => ({ id: r.id, cells: r.cells }));
+
+        smartsheetApiRequest(`/sheets/${config.sheetId}/rows`, 'PUT', payload);
+
+        // Mark as successful
+        batch.forEach(r => {
+          successful.push(r._taskId);
+        });
+      }
+    } catch (e) {
+      // Mark remaining as failed
+      rowUpdates.forEach(r => {
+        if (!successful.includes(r._taskId)) {
+          failed.push({ taskId: r._taskId, error: e.message });
+        }
+      });
+    }
+  }
+
+  return { successful, failed };
+}
+
+/**
+ * Formats a date for Smartsheet API
+ */
+function formatDateForSmartsheet(date) {
+  if (!date) return null;
+  return Utilities.formatDate(date, 'UTC', 'yyyy-MM-dd');
+}
+
+/**
+ * Pushes only selected rows to Smartsheet
+ */
+function pushSelectedToSmartsheet() {
+  const ui = SpreadsheetApp.getUi();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getActiveSheet();
+
+  if (sheet.getName() !== DATA_SHEET_NAME) {
+    ui.alert('Wrong Sheet', `Please select rows in the "${DATA_SHEET_NAME}" sheet.`, ui.ButtonSet.OK);
+    return;
+  }
+
+  const config = getSmartsheetConfig();
+  if (!config.apiToken || !config.sheetId) {
+    ui.alert('Not Configured', 'Please configure Smartsheet connection first.', ui.ButtonSet.OK);
+    return;
+  }
+
+  const selection = sheet.getActiveRange();
+  const startRow = selection.getRow();
+  const numRows = selection.getNumRows();
+
+  if (startRow < 2) {
+    ui.alert('Invalid Selection', 'Please select data rows (not the header).', ui.ButtonSet.OK);
+    return;
+  }
+
+  // Get selected rows
+  const selectedRows = [];
+  for (let i = 0; i < numRows; i++) {
+    const rowData = sheet.getRange(startRow + i, 1, 1, COLUMN_HEADERS.length).getValues()[0];
+    if (rowData[COL.TASK_ID]) {
+      selectedRows.push({
+        rowIndex: startRow + i,
+        data: rowData
+      });
+    }
+  }
+
+  if (selectedRows.length === 0) {
+    ui.alert('No Tasks', 'No tasks found in selection.', ui.ButtonSet.OK);
+    return;
+  }
+
+  const response = ui.alert(
+    'Push to Smartsheet',
+    `Push ${selectedRows.length} selected row(s) to Smartsheet?`,
+    ui.ButtonSet.YES_NO
+  );
+
+  if (response !== ui.Button.YES) {
+    return;
+  }
+
+  const results = pushRowsToSmartsheet(selectedRows);
+
+  // Clear modified flag for successful pushes
+  const dataSheet = ss.getSheetByName(DATA_SHEET_NAME);
+  results.successful.forEach(taskId => {
+    selectedRows.forEach(row => {
+      if (String(row.data[COL.TASK_ID]).trim() === taskId) {
+        dataSheet.getRange(row.rowIndex, COL.MODIFIED + 1).setValue('');
+      }
+    });
+  });
+
+  let message = `Successfully pushed ${results.successful.length} task(s).`;
+  if (results.failed.length > 0) {
+    message += `\n\nFailed: ${results.failed.map(f => `${f.taskId}: ${f.error}`).join('\n')}`;
+  }
+
+  ui.alert('Push Complete', message, ui.ButtonSet.OK);
+}
+
+/**
+ * Shows Smartsheet sync status
+ */
+function showSmartsheetSyncStatus() {
+  const config = getSmartsheetConfig();
+  const sheetDataMap = getSheetDataMap();
+
+  let modifiedCount = 0;
+  sheetDataMap.forEach(entry => {
+    if (String(entry.data[COL.MODIFIED]).toLowerCase() === 'yes') {
+      modifiedCount++;
+    }
+  });
+
+  const lastSync = config.lastSyncTime
+    ? new Date(config.lastSyncTime).toLocaleString()
+    : 'Never';
+
+  const sheetName = config.sheetName || config.sheetId || 'Not configured';
+
+  const ui = SpreadsheetApp.getUi();
+  ui.alert(
+    'Smartsheet Sync Status',
+    `Connected Sheet: ${sheetName}\n\n` +
+    `Last sync: ${lastSync}\n` +
+    `Total tasks in sheet: ${sheetDataMap.size}\n` +
+    `Modified (pending push): ${modifiedCount}`,
+    ui.ButtonSet.OK
+  );
 }

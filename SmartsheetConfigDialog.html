@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      padding: 20px;
+      background: #fafafa;
+      color: #333;
+    }
+    .form-section {
+      background: white;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 15px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .section-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #0073EA;
+      margin-bottom: 15px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid #E8F4FF;
+    }
+    .form-group {
+      margin-bottom: 15px;
+    }
+    .form-group:last-child {
+      margin-bottom: 0;
+    }
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: #5f6368;
+      margin-bottom: 6px;
+    }
+    input[type="text"],
+    input[type="password"],
+    select {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #dadce0;
+      border-radius: 4px;
+      font-size: 14px;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    input:focus,
+    select:focus {
+      outline: none;
+      border-color: #0073EA;
+      box-shadow: 0 0 0 2px rgba(0, 115, 234, 0.2);
+    }
+    .row {
+      display: flex;
+      gap: 15px;
+    }
+    .col {
+      flex: 1;
+    }
+    .actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 20px;
+    }
+    .btn {
+      padding: 10px 24px;
+      border: none;
+      border-radius: 4px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: #0073EA;
+      color: white;
+    }
+    .btn-primary:hover {
+      background: #0060C0;
+    }
+    .btn-secondary {
+      background: #f1f3f4;
+      color: #5f6368;
+    }
+    .btn-secondary:hover {
+      background: #e8eaed;
+    }
+    .btn-success {
+      background: #34A853;
+      color: white;
+    }
+    .btn-success:hover {
+      background: #2E7D32;
+    }
+    .btn-info {
+      background: #0073EA;
+      color: white;
+      padding: 8px 16px;
+      font-size: 13px;
+    }
+    .btn-info:hover {
+      background: #0060C0;
+    }
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .hint {
+      font-size: 11px;
+      color: #9aa0a6;
+      margin-top: 4px;
+    }
+    .hint a {
+      color: #0073EA;
+    }
+    .status {
+      padding: 10px;
+      border-radius: 4px;
+      font-size: 13px;
+      margin-top: 15px;
+      display: none;
+    }
+    .status.success {
+      display: block;
+      background: #E8F5E9;
+      color: #2E7D32;
+    }
+    .status.error {
+      display: block;
+      background: #FFEBEE;
+      color: #C62828;
+    }
+    .status.info {
+      display: block;
+      background: #E3F2FD;
+      color: #1565C0;
+    }
+    .test-connection {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .sheet-selection {
+      display: flex;
+      align-items: flex-end;
+      gap: 10px;
+    }
+    .sheet-selection .form-group {
+      flex: 1;
+      margin-bottom: 0;
+    }
+    .column-mapping {
+      background: #f8f9fa;
+      border-radius: 4px;
+      padding: 15px;
+      margin-top: 10px;
+    }
+    .column-mapping-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .column-mapping-row:last-child {
+      margin-bottom: 0;
+    }
+    .column-mapping-label {
+      width: 140px;
+      font-size: 13px;
+      color: #5f6368;
+    }
+    .column-mapping-select {
+      flex: 1;
+    }
+    .column-mapping-select select {
+      width: 100%;
+    }
+    .required-marker {
+      color: #C62828;
+      margin-left: 2px;
+    }
+    .loading {
+      text-align: center;
+      padding: 20px;
+      color: #5f6368;
+    }
+    .spinner {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 2px solid #e0e0e0;
+      border-top-color: #0073EA;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-right: 8px;
+      vertical-align: middle;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <form id="smartsheetConfigForm" onsubmit="saveSettings(event)">
+    <!-- Connection Section -->
+    <div class="form-section">
+      <div class="section-title">Smartsheet Connection</div>
+      <div class="form-group">
+        <label for="apiToken">API Access Token</label>
+        <input type="password" id="apiToken" name="apiToken" placeholder="Enter your Smartsheet API token">
+        <div class="hint">Generate at <a href="https://app.smartsheet.com/b/home?lx=xgDjCjn5Qs7qJbEpCp9B5Q" target="_blank">Smartsheet Account > Personal Settings > API Access</a></div>
+      </div>
+      <div class="test-connection">
+        <button type="button" class="btn btn-success" onclick="testConnection()">Test Connection</button>
+        <span id="connectionStatus"></span>
+      </div>
+    </div>
+
+    <!-- Sheet Selection Section -->
+    <div class="form-section">
+      <div class="section-title">Sheet Selection</div>
+      <div class="sheet-selection">
+        <div class="form-group">
+          <label for="sheetId">Smartsheet Sheet</label>
+          <select id="sheetId" name="sheetId" onchange="onSheetSelected()">
+            <option value="">-- Connect to load sheets --</option>
+          </select>
+          <div class="hint">Select the Smartsheet containing your project tasks</div>
+        </div>
+        <button type="button" class="btn btn-info" onclick="loadSheets()">Refresh Sheets</button>
+      </div>
+    </div>
+
+    <!-- Column Mapping Section -->
+    <div class="form-section">
+      <div class="section-title">Column Mapping</div>
+      <p style="font-size: 13px; color: #5f6368; margin-bottom: 15px;">
+        Map Smartsheet columns to Visual Gantt fields. Required fields are marked with <span class="required-marker">*</span>
+      </p>
+      <div id="columnMappingContainer">
+        <div class="loading" id="columnMappingLoading" style="display: none;">
+          <span class="spinner"></span> Loading columns...
+        </div>
+        <div class="column-mapping" id="columnMapping">
+          <div class="column-mapping-row">
+            <span class="column-mapping-label">Task ID<span class="required-marker">*</span></span>
+            <div class="column-mapping-select">
+              <select id="colTaskId" name="colTaskId"><option value="">-- Select column --</option></select>
+            </div>
+          </div>
+          <div class="column-mapping-row">
+            <span class="column-mapping-label">Task Name<span class="required-marker">*</span></span>
+            <div class="column-mapping-select">
+              <select id="colTaskName" name="colTaskName"><option value="">-- Select column --</option></select>
+            </div>
+          </div>
+          <div class="column-mapping-row">
+            <span class="column-mapping-label">Start Date<span class="required-marker">*</span></span>
+            <div class="column-mapping-select">
+              <select id="colStartDate" name="colStartDate"><option value="">-- Select column --</option></select>
+            </div>
+          </div>
+          <div class="column-mapping-row">
+            <span class="column-mapping-label">End Date</span>
+            <div class="column-mapping-select">
+              <select id="colEndDate" name="colEndDate"><option value="">-- Select column --</option></select>
+            </div>
+          </div>
+          <div class="column-mapping-row">
+            <span class="column-mapping-label">Duration</span>
+            <div class="column-mapping-select">
+              <select id="colDuration" name="colDuration"><option value="">-- Select column --</option></select>
+            </div>
+          </div>
+          <div class="column-mapping-row">
+            <span class="column-mapping-label">Owner/Assignee</span>
+            <div class="column-mapping-select">
+              <select id="colOwner" name="colOwner"><option value="">-- Select column --</option></select>
+            </div>
+          </div>
+          <div class="column-mapping-row">
+            <span class="column-mapping-label">% Complete</span>
+            <div class="column-mapping-select">
+              <select id="colPercentComplete" name="colPercentComplete"><option value="">-- Select column --</option></select>
+            </div>
+          </div>
+          <div class="column-mapping-row">
+            <span class="column-mapping-label">Priority</span>
+            <div class="column-mapping-select">
+              <select id="colPriority" name="colPriority"><option value="">-- Select column --</option></select>
+            </div>
+          </div>
+          <div class="column-mapping-row">
+            <span class="column-mapping-label">Predecessors</span>
+            <div class="column-mapping-select">
+              <select id="colPredecessors" name="colPredecessors"><option value="">-- Select column --</option></select>
+            </div>
+          </div>
+          <div class="column-mapping-row">
+            <span class="column-mapping-label">Category/Swimlane</span>
+            <div class="column-mapping-select">
+              <select id="colCategory" name="colCategory"><option value="">-- Select column --</option></select>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sync Options Section -->
+    <div class="form-section">
+      <div class="section-title">Sync Options</div>
+      <div class="form-group">
+        <label>
+          <input type="checkbox" id="includeChildRows" name="includeChildRows" checked>
+          Include child rows (subtasks)
+        </label>
+        <div class="hint">When enabled, hierarchical task structures are preserved</div>
+      </div>
+      <div class="form-group">
+        <label>
+          <input type="checkbox" id="syncDependencies" name="syncDependencies" checked>
+          Sync predecessor dependencies
+        </label>
+        <div class="hint">Import and export task dependencies from Smartsheet</div>
+      </div>
+    </div>
+
+    <div class="status" id="status"></div>
+
+    <div class="actions">
+      <button type="button" class="btn btn-secondary" onclick="google.script.host.close()">Cancel</button>
+      <button type="submit" class="btn btn-primary">Save Configuration</button>
+    </div>
+  </form>
+
+  <script>
+    let availableColumns = [];
+    let availableSheets = [];
+
+    // Load current config on page load
+    google.script.run
+      .withSuccessHandler(loadConfig)
+      .withFailureHandler(handleError)
+      .getSmartsheetConfigForDialog();
+
+    function loadConfig(config) {
+      document.getElementById('apiToken').value = config.apiToken || '';
+      document.getElementById('includeChildRows').checked = config.includeChildRows !== false;
+      document.getElementById('syncDependencies').checked = config.syncDependencies !== false;
+
+      // Store column mappings to apply after loading columns
+      window.pendingColumnMappings = config.columnMapping || {};
+
+      // If we have an API token, load sheets
+      if (config.apiToken && config.apiToken !== '••••••••') {
+        loadSheets(config.sheetId);
+      } else if (config.sheetId) {
+        // Set sheet ID even if we can't load the list yet
+        const sheetSelect = document.getElementById('sheetId');
+        sheetSelect.innerHTML = '<option value="' + config.sheetId + '">Sheet ID: ' + config.sheetId + '</option>';
+        sheetSelect.value = config.sheetId;
+      }
+    }
+
+    function testConnection() {
+      const statusEl = document.getElementById('connectionStatus');
+      statusEl.textContent = 'Testing...';
+      statusEl.style.color = '#5f6368';
+
+      // First save the current token temporarily
+      const token = document.getElementById('apiToken').value;
+      if (!token || token === '••••••••') {
+        statusEl.textContent = 'Please enter an API token';
+        statusEl.style.color = '#C62828';
+        return;
+      }
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          if (result.success) {
+            statusEl.textContent = result.message;
+            statusEl.style.color = '#2E7D32';
+            // Automatically load sheets on successful connection
+            loadSheets();
+          } else {
+            statusEl.textContent = result.message;
+            statusEl.style.color = '#C62828';
+          }
+        })
+        .withFailureHandler(function(error) {
+          statusEl.textContent = 'Error: ' + error.message;
+          statusEl.style.color = '#C62828';
+        })
+        .testSmartsheetConnectionWithToken(token);
+    }
+
+    function loadSheets(preselectSheetId) {
+      const token = document.getElementById('apiToken').value;
+      if (!token) {
+        showStatus('Please enter an API token first', 'error');
+        return;
+      }
+
+      const sheetSelect = document.getElementById('sheetId');
+      sheetSelect.innerHTML = '<option value="">Loading sheets...</option>';
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          if (result.success) {
+            availableSheets = result.sheets;
+            sheetSelect.innerHTML = '<option value="">-- Select a sheet --</option>';
+            result.sheets.forEach(function(sheet) {
+              const option = document.createElement('option');
+              option.value = sheet.id;
+              option.textContent = sheet.name;
+              sheetSelect.appendChild(option);
+            });
+
+            // Preselect if we have a sheet ID
+            if (preselectSheetId) {
+              sheetSelect.value = preselectSheetId;
+              onSheetSelected();
+            }
+          } else {
+            sheetSelect.innerHTML = '<option value="">Error loading sheets</option>';
+            showStatus(result.message, 'error');
+          }
+        })
+        .withFailureHandler(function(error) {
+          sheetSelect.innerHTML = '<option value="">Error loading sheets</option>';
+          handleError(error);
+        })
+        .loadSmartsheetListWithToken(token);
+    }
+
+    function onSheetSelected() {
+      const sheetId = document.getElementById('sheetId').value;
+      const token = document.getElementById('apiToken').value;
+
+      if (!sheetId || !token) {
+        return;
+      }
+
+      // Show loading
+      document.getElementById('columnMappingLoading').style.display = 'block';
+      document.getElementById('columnMapping').style.display = 'none';
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          document.getElementById('columnMappingLoading').style.display = 'none';
+          document.getElementById('columnMapping').style.display = 'block';
+
+          if (result.success) {
+            availableColumns = result.columns;
+            populateColumnSelects(result.columns);
+
+            // Apply pending column mappings if any
+            if (window.pendingColumnMappings) {
+              applyColumnMappings(window.pendingColumnMappings);
+              window.pendingColumnMappings = null;
+            }
+          } else {
+            showStatus(result.message, 'error');
+          }
+        })
+        .withFailureHandler(function(error) {
+          document.getElementById('columnMappingLoading').style.display = 'none';
+          document.getElementById('columnMapping').style.display = 'block';
+          handleError(error);
+        })
+        .loadSmartsheetColumnsWithToken(token, sheetId);
+    }
+
+    function populateColumnSelects(columns) {
+      const selectIds = [
+        'colTaskId', 'colTaskName', 'colStartDate', 'colEndDate',
+        'colDuration', 'colOwner', 'colPercentComplete', 'colPriority',
+        'colPredecessors', 'colCategory'
+      ];
+
+      selectIds.forEach(function(selectId) {
+        const select = document.getElementById(selectId);
+        const currentValue = select.value;
+        select.innerHTML = '<option value="">-- Select column --</option>';
+
+        columns.forEach(function(col) {
+          const option = document.createElement('option');
+          option.value = col.id;
+          option.textContent = col.title + ' (' + col.type + ')';
+          select.appendChild(option);
+        });
+
+        // Try to auto-map based on column names
+        if (!currentValue) {
+          const autoMapping = autoMapColumn(selectId, columns);
+          if (autoMapping) {
+            select.value = autoMapping;
+          }
+        }
+      });
+    }
+
+    function autoMapColumn(selectId, columns) {
+      const mappingHints = {
+        'colTaskId': ['task id', 'id', 'row id', 'task number', 'number'],
+        'colTaskName': ['task name', 'name', 'title', 'task', 'description', 'primary'],
+        'colStartDate': ['start', 'start date', 'begin', 'begin date'],
+        'colEndDate': ['end', 'end date', 'finish', 'finish date', 'due', 'due date'],
+        'colDuration': ['duration', 'days', 'length'],
+        'colOwner': ['owner', 'assigned', 'assignee', 'assigned to', 'resource', 'contact'],
+        'colPercentComplete': ['complete', '% complete', 'percent', 'progress', 'percent complete', 'done'],
+        'colPriority': ['priority', 'importance', 'urgency'],
+        'colPredecessors': ['predecessor', 'predecessors', 'depends on', 'dependency', 'dependencies'],
+        'colCategory': ['category', 'swimlane', 'team', 'department', 'group', 'type']
+      };
+
+      const hints = mappingHints[selectId] || [];
+      for (const col of columns) {
+        const colNameLower = col.title.toLowerCase();
+        for (const hint of hints) {
+          if (colNameLower.includes(hint) || colNameLower === hint) {
+            return col.id;
+          }
+        }
+        // Special case: primary column for task name
+        if (selectId === 'colTaskName' && col.primary) {
+          return col.id;
+        }
+      }
+      return null;
+    }
+
+    function applyColumnMappings(mappings) {
+      Object.keys(mappings).forEach(function(key) {
+        const select = document.getElementById(key);
+        if (select && mappings[key]) {
+          select.value = mappings[key];
+        }
+      });
+    }
+
+    function gatherConfig() {
+      return {
+        apiToken: document.getElementById('apiToken').value,
+        sheetId: document.getElementById('sheetId').value,
+        sheetName: document.getElementById('sheetId').selectedOptions[0]?.textContent || '',
+        includeChildRows: document.getElementById('includeChildRows').checked,
+        syncDependencies: document.getElementById('syncDependencies').checked,
+        columnMapping: {
+          colTaskId: document.getElementById('colTaskId').value,
+          colTaskName: document.getElementById('colTaskName').value,
+          colStartDate: document.getElementById('colStartDate').value,
+          colEndDate: document.getElementById('colEndDate').value,
+          colDuration: document.getElementById('colDuration').value,
+          colOwner: document.getElementById('colOwner').value,
+          colPercentComplete: document.getElementById('colPercentComplete').value,
+          colPriority: document.getElementById('colPriority').value,
+          colPredecessors: document.getElementById('colPredecessors').value,
+          colCategory: document.getElementById('colCategory').value
+        }
+      };
+    }
+
+    function saveSettings(event) {
+      event.preventDefault();
+
+      const config = gatherConfig();
+
+      // Validate required fields
+      if (!config.apiToken || config.apiToken === '••••••••') {
+        showStatus('Please enter your Smartsheet API token', 'error');
+        return;
+      }
+      if (!config.sheetId) {
+        showStatus('Please select a Smartsheet', 'error');
+        return;
+      }
+      if (!config.columnMapping.colTaskName) {
+        showStatus('Please map the Task Name column', 'error');
+        return;
+      }
+      if (!config.columnMapping.colStartDate) {
+        showStatus('Please map the Start Date column', 'error');
+        return;
+      }
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          showStatus('Configuration saved successfully!', 'success');
+          setTimeout(function() {
+            google.script.host.close();
+          }, 1000);
+        })
+        .withFailureHandler(handleError)
+        .saveSmartsheetConfigFromDialog(config);
+    }
+
+    function showStatus(message, type) {
+      const status = document.getElementById('status');
+      status.textContent = message;
+      status.className = 'status ' + type;
+    }
+
+    function handleError(error) {
+      showStatus('Error: ' + error.message, 'error');
+    }
+  </script>
+</body>
+</html>
