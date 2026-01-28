@@ -239,6 +239,41 @@
   </div>
 
   <div class="section">
+    <h3>Jira Integration</h3>
+    <p>Sync your tasks bidirectionally with Jira Cloud:</p>
+    <ol>
+      <li><strong>Configure:</strong> Go to <code>Visual Gantt > Jira > Configure Connection</code></li>
+      <li><strong>Pull:</strong> Import issues from Jira using JQL, project key, or saved filters</li>
+      <li><strong>Push:</strong> Update Jira with changes made in Google Sheets</li>
+    </ol>
+    <div class="tip">
+      <strong>Conflict Resolution:</strong> When pulling from Jira, locally modified rows will show a conflict dialog letting you choose which version to keep.
+    </div>
+  </div>
+
+  <div class="section">
+    <h3>Smartsheet Integration</h3>
+    <p>Sync your tasks bidirectionally with Smartsheet:</p>
+    <ol>
+      <li><strong>Configure:</strong> Go to <code>Visual Gantt > Smartsheet > Configure Connection</code></li>
+      <li><strong>Select Sheet:</strong> Choose the Smartsheet containing your project data</li>
+      <li><strong>Map Columns:</strong> Map Smartsheet columns to Visual Gantt fields</li>
+      <li><strong>Pull:</strong> Import rows from your Smartsheet</li>
+      <li><strong>Push:</strong> Update Smartsheet with changes made in Google Sheets</li>
+    </ol>
+    <p>Supported Smartsheet features:</p>
+    <ul>
+      <li>Hierarchical task structure (parent/child rows)</li>
+      <li>Predecessor dependencies</li>
+      <li>Contact list columns for owners</li>
+      <li>Date, duration, and percent complete columns</li>
+    </ul>
+    <div class="tip">
+      <strong>API Token:</strong> Generate your Smartsheet API token at Account > Personal Settings > API Access.
+    </div>
+  </div>
+
+  <div class="section">
     <h3>Tips for Best Results</h3>
     <ul>
       <li>Use consistent naming conventions for Task IDs</li>
