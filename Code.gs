@@ -158,15 +158,263 @@ const SWIMLANE_COLORS = [
 ];
 
 // ============================================================================
+// AUTHORIZATION UTILITIES
+// ============================================================================
+
+/**
+ * Checks the current authorization status for the add-on
+ * @returns {Object} Authorization status with isAuthorized flag and details
+ */
+function checkAuthorizationStatus() {
+  try {
+    const authInfo = ScriptApp.getAuthorizationInfo(ScriptApp.AuthMode.FULL);
+    const authStatus = authInfo.getAuthorizationStatus();
+
+    return {
+      isAuthorized: authStatus === ScriptApp.AuthorizationStatus.NOT_REQUIRED,
+      status: authStatus,
+      authUrl: authInfo.getAuthorizationUrl(),
+      needsAuth: authStatus === ScriptApp.AuthorizationStatus.REQUIRED
+    };
+  } catch (e) {
+    Logger.log('Error checking authorization: ' + e.message);
+    return {
+      isAuthorized: false,
+      status: null,
+      authUrl: null,
+      needsAuth: true,
+      error: e.message
+    };
+  }
+}
+
+/**
+ * Checks if the add-on has the required authorization to perform operations
+ * This should be called before any operation that requires spreadsheet access
+ * @returns {boolean} True if authorized, false otherwise
+ */
+function hasFileAccess() {
+  try {
+    // Try a minimal operation that requires file access
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (!ss) {
+      return false;
+    }
+    // Try to get spreadsheet name - this requires file scope
+    ss.getName();
+    return true;
+  } catch (e) {
+    Logger.log('File access check failed: ' + e.message);
+    return false;
+  }
+}
+
+/**
+ * Requires authorization before proceeding with an operation
+ * Shows an authorization dialog if not authorized
+ * @param {string} operationName - Name of the operation for error messages
+ * @returns {boolean} True if authorized and can proceed
+ */
+function requireAuthorization(operationName) {
+  if (!hasFileAccess()) {
+    const ui = SpreadsheetApp.getUi();
+    const authStatus = checkAuthorizationStatus();
+
+    let message = 'This add-on needs permission to access this spreadsheet to ' + operationName + '.\n\n';
+
+    if (authStatus.authUrl) {
+      message += 'Please use the "Visual Gantt > Request Authorization" menu item to grant access, ';
+      message += 'or visit this URL:\n' + authStatus.authUrl;
+    } else {
+      message += 'Please:\n';
+      message += '1. Go to Extensions > Visual Gantt > Request Authorization\n';
+      message += '2. Follow the authorization prompts\n';
+      message += '3. Try this operation again';
+    }
+
+    ui.alert('Authorization Required', message, ui.ButtonSet.OK);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Triggers the authorization flow by attempting an operation that requires auth
+ * This is called from the menu to let users proactively authorize
+ */
+function requestAuthorization() {
+  const ui = SpreadsheetApp.getUi();
+
+  try {
+    // Check current status
+    const authStatus = checkAuthorizationStatus();
+
+    if (authStatus.isAuthorized) {
+      // Already authorized - verify by testing actual access
+      if (hasFileAccess()) {
+        ui.alert('Authorization Status',
+          'Visual Gantt is fully authorized for this spreadsheet!\n\n' +
+          'You can now use all features of the add-on.',
+          ui.ButtonSet.OK);
+        return;
+      }
+    }
+
+    // Try to trigger authorization by accessing the spreadsheet
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const name = ss.getName();
+
+    // If we get here, authorization was successful
+    ui.alert('Authorization Successful',
+      'Visual Gantt has been authorized for: ' + name + '\n\n' +
+      'You can now use all features of the add-on.',
+      ui.ButtonSet.OK);
+
+  } catch (e) {
+    Logger.log('Authorization request failed: ' + e.message);
+
+    // Check if we can get an auth URL
+    const authStatus = checkAuthorizationStatus();
+
+    let message = 'Authorization is required to use Visual Gantt.\n\n';
+
+    if (e.message.includes('PERMISSION_DENIED') || e.message.includes('Authorization')) {
+      message += 'It appears the add-on does not have permission to access this spreadsheet.\n\n';
+      message += 'Please try:\n';
+      message += '1. Refresh the page\n';
+      message += '2. Click the authorization prompt when it appears\n';
+      message += '3. If no prompt appears, try removing and re-adding the add-on\n\n';
+
+      if (authStatus.authUrl) {
+        message += 'Or visit: ' + authStatus.authUrl;
+      }
+    } else {
+      message += 'Error: ' + e.message;
+    }
+
+    ui.alert('Authorization Required', message, ui.ButtonSet.OK);
+  }
+}
+
+/**
+ * Gets detailed authorization diagnostics for troubleshooting
+ */
+function getAuthorizationDiagnostics() {
+  const diagnostics = {
+    timestamp: new Date().toISOString(),
+    authStatus: null,
+    fileAccess: false,
+    propertiesAccess: {
+      document: false,
+      script: false,
+      user: false
+    },
+    spreadsheetAccess: {
+      getActive: false,
+      getName: false,
+      getSheets: false
+    },
+    errors: []
+  };
+
+  // Check authorization status
+  try {
+    diagnostics.authStatus = checkAuthorizationStatus();
+  } catch (e) {
+    diagnostics.errors.push('Auth status check: ' + e.message);
+  }
+
+  // Check PropertiesService access
+  try {
+    PropertiesService.getDocumentProperties();
+    diagnostics.propertiesAccess.document = true;
+  } catch (e) {
+    diagnostics.errors.push('DocumentProperties: ' + e.message);
+  }
+
+  try {
+    PropertiesService.getScriptProperties();
+    diagnostics.propertiesAccess.script = true;
+  } catch (e) {
+    diagnostics.errors.push('ScriptProperties: ' + e.message);
+  }
+
+  try {
+    PropertiesService.getUserProperties();
+    diagnostics.propertiesAccess.user = true;
+  } catch (e) {
+    diagnostics.errors.push('UserProperties: ' + e.message);
+  }
+
+  // Check Spreadsheet access
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    diagnostics.spreadsheetAccess.getActive = !!ss;
+
+    if (ss) {
+      try {
+        ss.getName();
+        diagnostics.spreadsheetAccess.getName = true;
+      } catch (e) {
+        diagnostics.errors.push('Spreadsheet.getName: ' + e.message);
+      }
+
+      try {
+        ss.getSheets();
+        diagnostics.spreadsheetAccess.getSheets = true;
+      } catch (e) {
+        diagnostics.errors.push('Spreadsheet.getSheets: ' + e.message);
+      }
+    }
+  } catch (e) {
+    diagnostics.errors.push('getActiveSpreadsheet: ' + e.message);
+  }
+
+  diagnostics.fileAccess = diagnostics.spreadsheetAccess.getName &&
+                           diagnostics.spreadsheetAccess.getSheets;
+
+  return diagnostics;
+}
+
+/**
+ * Shows authorization diagnostics dialog for troubleshooting
+ */
+function showAuthorizationDiagnostics() {
+  const ui = SpreadsheetApp.getUi();
+  const diagnostics = getAuthorizationDiagnostics();
+
+  let message = 'Authorization Diagnostics\n';
+  message += '========================\n\n';
+  message += 'File Access: ' + (diagnostics.fileAccess ? 'YES' : 'NO') + '\n\n';
+
+  message += 'Properties Service:\n';
+  message += '  - Document: ' + (diagnostics.propertiesAccess.document ? 'OK' : 'FAILED') + '\n';
+  message += '  - Script: ' + (diagnostics.propertiesAccess.script ? 'OK' : 'FAILED') + '\n';
+  message += '  - User: ' + (diagnostics.propertiesAccess.user ? 'OK' : 'FAILED') + '\n\n';
+
+  message += 'Spreadsheet Access:\n';
+  message += '  - Get Active: ' + (diagnostics.spreadsheetAccess.getActive ? 'OK' : 'FAILED') + '\n';
+  message += '  - Get Name: ' + (diagnostics.spreadsheetAccess.getName ? 'OK' : 'FAILED') + '\n';
+  message += '  - Get Sheets: ' + (diagnostics.spreadsheetAccess.getSheets ? 'OK' : 'FAILED') + '\n\n';
+
+  if (diagnostics.errors.length > 0) {
+    message += 'Errors:\n';
+    diagnostics.errors.forEach(err => {
+      message += '  - ' + err + '\n';
+    });
+  }
+
+  ui.alert('Authorization Diagnostics', message, ui.ButtonSet.OK);
+}
+
+// ============================================================================
 // PROPERTIES SERVICE STORAGE
 // ============================================================================
 
 // Note: Configuration is stored using PropertiesService.getDocumentProperties()
-// which is the recommended approach for Google Apps Script add-ons. It:
-// - Requires no additional OAuth scopes
-// - Is tied to the document (each spreadsheet has its own settings)
-// - Is atomic and reliable
-// - Works in all organizational contexts
+// DocumentProperties requires file-scope authorization for add-ons.
+// ScriptProperties is used as a fallback when document access is not available.
+// UserProperties stores user-specific settings across all documents.
 
 // ============================================================================
 // MENU & TRIGGERS
@@ -174,9 +422,14 @@ const SWIMLANE_COLORS = [
 
 /**
  * Creates the add-on menu when the spreadsheet opens
+ * Handles both full and limited authorization modes
  */
 function onOpen(e) {
   const ui = SpreadsheetApp.getUi();
+
+  // Determine auth mode from event or default to FULL
+  // In limited auth mode (e.g., when add-on first loads), some operations may not be available
+  const authMode = e && e.authMode ? e.authMode : ScriptApp.AuthMode.FULL;
 
   // Create Jira submenu
   const jiraMenu = ui.createMenu('Jira')
@@ -202,6 +455,11 @@ function onOpen(e) {
     .addSeparator()
     .addItem('View Sync Status', 'showSmartsheetSyncStatus');
 
+  // Create Authorization submenu for troubleshooting
+  const authMenu = ui.createMenu('Authorization')
+    .addItem('Request Authorization', 'requestAuthorization')
+    .addItem('Check Authorization Status', 'showAuthorizationDiagnostics');
+
   ui.createMenu('Visual Gantt')
     .addItem('Generate Timeline', 'generateTimeline')
     .addItem('Refresh Timeline', 'refreshTimeline')
@@ -217,6 +475,7 @@ function onOpen(e) {
     .addItem('Setup Data Sheet', 'setupDataSheet')
     .addItem('Create Sample Data', 'createSampleData')
     .addSeparator()
+    .addSubMenu(authMenu)
     .addItem('Help', 'showHelp')
     .addItem('About', 'showAbout')
     .addToUi();
@@ -231,9 +490,200 @@ function onInstall(e) {
 
 /**
  * Runs when file scope is granted
+ * This is triggered by Google Sheets when the user authorizes the add-on for this file
  */
 function onFileScopeGranted(e) {
+  // Log successful file scope grant
+  Logger.log('File scope granted - initializing add-on');
   onOpen(e);
+}
+
+/**
+ * Creates the homepage card for the Workspace Add-on sidebar
+ * This displays before the user grants file scope access
+ * @param {Object} e - Event object
+ * @returns {CardService.Card} The homepage card
+ */
+function onHomepage(e) {
+  const builder = CardService.newCardBuilder();
+
+  // Header
+  const header = CardService.newCardHeader()
+    .setTitle('Visual Gantt')
+    .setSubtitle('Project Timeline Add-on')
+    .setImageUrl('https://www.gstatic.com/images/branding/product/2x/apps_script_48dp.png')
+    .setImageStyle(CardService.ImageStyle.CIRCLE);
+
+  builder.setHeader(header);
+
+  // Check authorization status
+  const hasAccess = hasFileAccess();
+
+  if (hasAccess) {
+    // User has granted file scope - show main functionality
+    const authorizedSection = CardService.newCardSection()
+      .setHeader('Ready to Use')
+      .addWidget(CardService.newTextParagraph()
+        .setText('Visual Gantt is authorized for this spreadsheet. Use the menu at Extensions > Visual Gantt to:'))
+      .addWidget(CardService.newTextParagraph()
+        .setText('• Generate Timeline - Create Gantt charts\n• Configure Settings - Customize appearance\n• Jira/Smartsheet - Sync with external tools\n• Export - Save as PNG or PDF'));
+
+    const menuButton = CardService.newTextButton()
+      .setText('Open Extensions Menu')
+      .setOnClickAction(CardService.newAction().setFunctionName('showMenuInstructions'));
+
+    authorizedSection.addWidget(menuButton);
+    builder.addSection(authorizedSection);
+
+  } else {
+    // User needs to grant file scope
+    const welcomeSection = CardService.newCardSection()
+      .setHeader('Welcome!')
+      .addWidget(CardService.newTextParagraph()
+        .setText('Visual Gantt creates professional Gantt chart timelines for your project management needs.'))
+      .addWidget(CardService.newTextParagraph()
+        .setText('Features include:\n• Visual timeline generation\n• Jira & Smartsheet integration\n• PNG/PDF export\n• Customizable styling'));
+
+    builder.addSection(welcomeSection);
+
+    const authSection = CardService.newCardSection()
+      .setHeader('Authorization Required')
+      .addWidget(CardService.newTextParagraph()
+        .setText('To use Visual Gantt with this spreadsheet, please grant access by clicking the button below.'))
+      .addWidget(CardService.newTextParagraph()
+        .setText('This allows the add-on to:\n• Read your project data\n• Create timeline sheets\n• Save your settings'));
+
+    const authButton = CardService.newTextButton()
+      .setText('Grant Access')
+      .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+      .setOnClickAction(CardService.newAction().setFunctionName('requestFileAccess'));
+
+    authSection.addWidget(authButton);
+    builder.addSection(authSection);
+  }
+
+  // Help section
+  const helpSection = CardService.newCardSection()
+    .setCollapsible(true)
+    .setHeader('Help & Support');
+
+  const helpButton = CardService.newTextButton()
+    .setText('View Help')
+    .setOnClickAction(CardService.newAction().setFunctionName('showHelp'));
+
+  const diagButton = CardService.newTextButton()
+    .setText('Check Authorization Status')
+    .setOnClickAction(CardService.newAction().setFunctionName('showAuthDiagCard'));
+
+  helpSection.addWidget(helpButton);
+  helpSection.addWidget(diagButton);
+  builder.addSection(helpSection);
+
+  return builder.build();
+}
+
+/**
+ * Requests file access - triggers the authorization flow
+ * @returns {CardService.ActionResponse} Response to update the card
+ */
+function requestFileAccess() {
+  try {
+    // Attempt to access the spreadsheet, which will trigger auth if needed
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (ss) {
+      ss.getName(); // This requires file scope
+    }
+
+    // If we get here, we have access - refresh the homepage
+    return CardService.newActionResponseBuilder()
+      .setNavigation(CardService.newNavigation().updateCard(onHomepage({})))
+      .setNotification(CardService.newNotification()
+        .setText('Authorization successful! You can now use Visual Gantt.'))
+      .build();
+
+  } catch (e) {
+    Logger.log('File access request failed: ' + e.message);
+
+    // Show error notification
+    return CardService.newActionResponseBuilder()
+      .setNotification(CardService.newNotification()
+        .setText('Please follow the authorization prompt to grant access.'))
+      .build();
+  }
+}
+
+/**
+ * Shows instructions about using the menu
+ * @returns {CardService.ActionResponse} Response with notification
+ */
+function showMenuInstructions() {
+  return CardService.newActionResponseBuilder()
+    .setNotification(CardService.newNotification()
+      .setText('Use the menu: Extensions > Visual Gantt to access all features'))
+    .build();
+}
+
+/**
+ * Shows authorization diagnostics as a card
+ * @returns {CardService.ActionResponse} Response with diagnostics card
+ */
+function showAuthDiagCard() {
+  const diagnostics = getAuthorizationDiagnostics();
+
+  const builder = CardService.newCardBuilder();
+
+  builder.setHeader(CardService.newCardHeader()
+    .setTitle('Authorization Diagnostics')
+    .setSubtitle(diagnostics.fileAccess ? 'Fully Authorized' : 'Authorization Needed'));
+
+  const statusSection = CardService.newCardSection()
+    .setHeader('Status');
+
+  statusSection.addWidget(CardService.newDecoratedText()
+    .setText('File Access')
+    .setBottomLabel(diagnostics.fileAccess ? '✓ Granted' : '✗ Not Granted'));
+
+  statusSection.addWidget(CardService.newDecoratedText()
+    .setText('Document Properties')
+    .setBottomLabel(diagnostics.propertiesAccess.document ? '✓ Available' : '✗ Not Available'));
+
+  statusSection.addWidget(CardService.newDecoratedText()
+    .setText('Script Properties')
+    .setBottomLabel(diagnostics.propertiesAccess.script ? '✓ Available' : '✗ Not Available'));
+
+  builder.addSection(statusSection);
+
+  if (diagnostics.errors.length > 0) {
+    const errorSection = CardService.newCardSection()
+      .setHeader('Errors')
+      .setCollapsible(true);
+
+    diagnostics.errors.forEach(err => {
+      errorSection.addWidget(CardService.newTextParagraph().setText('• ' + err));
+    });
+
+    builder.addSection(errorSection);
+  }
+
+  const backButton = CardService.newTextButton()
+    .setText('Back to Home')
+    .setOnClickAction(CardService.newAction().setFunctionName('goToHomepage'));
+
+  builder.addSection(CardService.newCardSection().addWidget(backButton));
+
+  return CardService.newActionResponseBuilder()
+    .setNavigation(CardService.newNavigation().pushCard(builder.build()))
+    .build();
+}
+
+/**
+ * Navigates back to the homepage card
+ * @returns {CardService.ActionResponse} Response to show homepage
+ */
+function goToHomepage() {
+  return CardService.newActionResponseBuilder()
+    .setNavigation(CardService.newNavigation().popToRoot().updateCard(onHomepage({})))
+    .build();
 }
 
 // ============================================================================
@@ -244,6 +694,11 @@ function onFileScopeGranted(e) {
  * Creates the data sheet template with proper column headers
  */
 function setupDataSheet() {
+  // Check authorization before proceeding
+  if (!requireAuthorization('create the data sheet')) {
+    return;
+  }
+
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let dataSheet = ss.getSheetByName(DATA_SHEET_NAME);
 
@@ -338,6 +793,11 @@ function setupDataSheet() {
  * Creates sample project data for demonstration
  */
 function createSampleData() {
+  // Check authorization before proceeding
+  if (!requireAuthorization('create sample data')) {
+    return;
+  }
+
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let dataSheet = ss.getSheetByName(DATA_SHEET_NAME);
 
@@ -637,63 +1097,118 @@ function detectCircularDependencies(tasks, taskMap) {
 // ============================================================================
 
 /**
- * Reads a setting value from Document Properties
- * Document Properties are tied to the spreadsheet and work in all contexts
+ * Reads a setting value from Properties Service
+ * Attempts: DocumentProperties -> UserProperties -> ScriptProperties
  * @param {string} key - The setting key to read
  * @returns {string|null} The setting value or null if not found
  */
 function readSetting_(key) {
+  // Try DocumentProperties first (per-document settings, requires file scope)
   try {
     const props = PropertiesService.getDocumentProperties();
     const value = props.getProperty(key);
+    if (value) return value;
+  } catch (e) {
+    Logger.log('DocumentProperties read failed: ' + e.message);
+  }
+
+  // Try UserProperties (per-user settings, always available)
+  try {
+    const userProps = PropertiesService.getUserProperties();
+    const value = userProps.getProperty(key);
+    if (value) return value;
+  } catch (e) {
+    Logger.log('UserProperties read failed: ' + e.message);
+  }
+
+  // Try ScriptProperties as final fallback (shared across all users)
+  try {
+    const scriptProps = PropertiesService.getScriptProperties();
+    const value = scriptProps.getProperty(key);
     return value || null;
   } catch (e) {
-    Logger.log('Error reading setting: ' + e.message);
-    // If DocumentProperties fails, try ScriptProperties as fallback
-    try {
-      const scriptProps = PropertiesService.getScriptProperties();
-      const value = scriptProps.getProperty(key);
-      return value || null;
-    } catch (e2) {
-      Logger.log('Fallback to ScriptProperties also failed: ' + e2.message);
-      return null;
-    }
+    Logger.log('ScriptProperties read failed: ' + e.message);
+    return null;
   }
 }
 
 /**
- * Writes a setting value to Document Properties
+ * Writes a setting value to Properties Service
+ * Attempts: DocumentProperties -> UserProperties -> ScriptProperties
  * @param {string} key - The setting key
  * @param {string} value - The setting value (JSON string)
  */
 function writeSetting_(key, value) {
+  let saved = false;
+
+  // Try DocumentProperties first (preferred for per-document settings)
   try {
     const props = PropertiesService.getDocumentProperties();
     props.setProperty(key, value);
+    saved = true;
+    Logger.log('Saved to DocumentProperties');
   } catch (e) {
-    Logger.log('Error writing to DocumentProperties: ' + e.message);
-    // If DocumentProperties fails, try ScriptProperties as fallback
+    Logger.log('DocumentProperties write failed (may need file scope authorization): ' + e.message);
+  }
+
+  // If DocumentProperties failed, try UserProperties
+  if (!saved) {
+    try {
+      const userProps = PropertiesService.getUserProperties();
+      userProps.setProperty(key, value);
+      saved = true;
+      Logger.log('Saved to UserProperties as fallback (settings will follow user, not document)');
+    } catch (e) {
+      Logger.log('UserProperties write failed: ' + e.message);
+    }
+  }
+
+  // If still not saved, try ScriptProperties as last resort
+  if (!saved) {
     try {
       const scriptProps = PropertiesService.getScriptProperties();
       scriptProps.setProperty(key, value);
-      Logger.log('Successfully wrote to ScriptProperties as fallback');
-    } catch (e2) {
-      Logger.log('Fallback to ScriptProperties also failed: ' + e2.message);
-      throw new Error('Unable to save settings. Please ensure the add-on has been authorized for this document.');
+      saved = true;
+      Logger.log('Saved to ScriptProperties as final fallback');
+    } catch (e) {
+      Logger.log('ScriptProperties write failed: ' + e.message);
     }
+  }
+
+  if (!saved) {
+    throw new Error(
+      'Unable to save settings. This is usually caused by missing authorization.\n\n' +
+      'Please try:\n' +
+      '1. Go to Extensions > Visual Gantt > Authorization > Request Authorization\n' +
+      '2. Follow the prompts to grant access\n' +
+      '3. Try saving again\n\n' +
+      'If the problem persists, your organization may have restrictions on add-on permissions.'
+    );
   }
 }
 
 /**
- * Deletes a setting from Document Properties
+ * Deletes a setting from all Properties stores
  * @param {string} key - The setting key to delete
  */
 function deleteSetting_(key) {
+  // Try to delete from all stores to ensure cleanup
   try {
-    const props = PropertiesService.getDocumentProperties();
-    props.deleteProperty(key);
+    PropertiesService.getDocumentProperties().deleteProperty(key);
   } catch (e) {
-    Logger.log('Error deleting setting: ' + e.message);
+    Logger.log('DocumentProperties delete failed: ' + e.message);
+  }
+
+  try {
+    PropertiesService.getUserProperties().deleteProperty(key);
+  } catch (e) {
+    Logger.log('UserProperties delete failed: ' + e.message);
+  }
+
+  try {
+    PropertiesService.getScriptProperties().deleteProperty(key);
+  } catch (e) {
+    Logger.log('ScriptProperties delete failed: ' + e.message);
   }
 }
 
@@ -727,6 +1242,11 @@ function getConfig() {
  * Saves configuration to Document Properties
  */
 function saveConfig(config) {
+  // Check file access before saving
+  if (!hasFileAccess()) {
+    throw new Error('Authorization required to save settings. Please use Visual Gantt > Authorization > Request Authorization.');
+  }
+
   const configJson = JSON.stringify(config);
 
   try {
@@ -772,6 +1292,11 @@ function saveConfigFromDialog(config) {
  * Main function to generate the timeline
  */
 function generateTimeline() {
+  // Check authorization before proceeding
+  if (!requireAuthorization('generate the timeline')) {
+    return;
+  }
+
   const ui = SpreadsheetApp.getUi();
 
   // Read task data
@@ -1198,6 +1723,11 @@ function getJiraConfig() {
  * Saves Jira configuration to Document Properties
  */
 function saveJiraConfig(config) {
+  // Check file access before saving
+  if (!hasFileAccess()) {
+    throw new Error('Authorization required to save Jira settings. Please use Visual Gantt > Authorization > Request Authorization.');
+  }
+
   const configJson = JSON.stringify(config);
 
   try {
@@ -1585,6 +2115,11 @@ function formatDateForDisplay(date) {
  * Main pull function - fetches from Jira and updates sheet
  */
 function pullFromJira() {
+  // Check authorization before proceeding
+  if (!requireAuthorization('pull from Jira')) {
+    return;
+  }
+
   const ui = SpreadsheetApp.getUi();
 
   try {
@@ -1793,6 +2328,11 @@ function pullSelectedFromJira() {
  * Pushes changes to Jira
  */
 function pushToJira() {
+  // Check authorization before proceeding
+  if (!requireAuthorization('push to Jira')) {
+    return;
+  }
+
   const ui = SpreadsheetApp.getUi();
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const dataSheet = ss.getSheetByName(DATA_SHEET_NAME);
@@ -2145,6 +2685,11 @@ function getSmartsheetConfig() {
  * Saves Smartsheet configuration to Document Properties
  */
 function saveSmartsheetConfig(config) {
+  // Check file access before saving
+  if (!hasFileAccess()) {
+    throw new Error('Authorization required to save Smartsheet settings. Please use Visual Gantt > Authorization > Request Authorization.');
+  }
+
   const configJson = JSON.stringify(config);
 
   try {
@@ -2644,6 +3189,11 @@ function detectSmartsheetConflicts(smartsheetRows, sheetDataMap) {
  * Main pull function - fetches from Smartsheet and updates sheet
  */
 function pullFromSmartsheet() {
+  // Check authorization before proceeding
+  if (!requireAuthorization('pull from Smartsheet')) {
+    return;
+  }
+
   const ui = SpreadsheetApp.getUi();
 
   try {
@@ -2846,6 +3396,11 @@ function pullSelectedFromSmartsheet() {
  * Pushes changes to Smartsheet
  */
 function pushToSmartsheet() {
+  // Check authorization before proceeding
+  if (!requireAuthorization('push to Smartsheet')) {
+    return;
+  }
+
   const ui = SpreadsheetApp.getUi();
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const dataSheet = ss.getSheetByName(DATA_SHEET_NAME);

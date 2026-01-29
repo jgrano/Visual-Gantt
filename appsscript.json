@@ -9,6 +9,10 @@
     "https://www.googleapis.com/auth/drive.file",
     "https://www.googleapis.com/auth/script.external_request"
   ],
+  "urlFetchWhitelist": [
+    "https://*.atlassian.net/",
+    "https://api.smartsheet.com/"
+  ],
   "addOns": {
     "common": {
       "name": "Visual Gantt",
@@ -16,7 +20,21 @@
       "layoutProperties": {
         "primaryColor": "#4285F4",
         "secondaryColor": "#34A853"
-      }
+      },
+      "homepageTrigger": {
+        "runFunction": "onHomepage",
+        "enabled": true
+      },
+      "universalActions": [
+        {
+          "label": "Request Authorization",
+          "runFunction": "requestAuthorization"
+        },
+        {
+          "label": "Help",
+          "runFunction": "showHelp"
+        }
+      ]
     },
     "sheets": {
       "onFileScopeGrantedTrigger": {
