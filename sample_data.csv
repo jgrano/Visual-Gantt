@@ -1,24 +1,24 @@
-Task ID,Task Name,Start Date,End Date,Duration (Days),Owner,% Complete,Priority,Jira Ticket,Parent Task,Dependencies,Task Type,Swimlane/Category,Original Start,Original End,Slip
-MECH-001,Mechanical Design Phase,2024-01-01,2024-02-15,,John Smith,75,High,https://jira.example.com/MECH-001,,,Task,Mechanical,,,
-MECH-002,Enclosure CAD Design,2024-01-01,2024-01-14,,John Smith,100,High,https://jira.example.com/MECH-002,MECH-001,,Task,Mechanical,,,
-MECH-003,Thermal Analysis,2024-01-08,2024-01-22,,Sarah Johnson,80,High,https://jira.example.com/MECH-003,MECH-001,MECH-002,Task,Mechanical,,,
-MECH-004,Prototype Fabrication,2024-01-22,2024-02-05,,John Smith,40,Medium,https://jira.example.com/MECH-004,MECH-001,MECH-003,Task,Mechanical,2024-01-15,2024-01-29,7 days later
-MECH-005,Mechanical Design Complete,2024-02-15,2024-02-15,,John Smith,0,High,https://jira.example.com/MECH-005,,MECH-004,Milestone,Mechanical,,,
-ELEC-001,Electrical Design Phase,2024-01-06,2024-02-20,,Mike Chen,60,High,https://jira.example.com/ELEC-001,,,Task,Electrical,,,
-ELEC-002,Power Stage Design,2024-01-06,2024-01-21,,Mike Chen,100,High,https://jira.example.com/ELEC-002,ELEC-001,,Task,Electrical,,,
-ELEC-003,PCB Layout,2024-01-16,2024-01-31,,Lisa Wong,70,High,https://jira.example.com/ELEC-003,ELEC-001,ELEC-002,Task,Electrical,2024-01-11,2024-01-26,5 days later
-ELEC-004,EMC Pre-compliance,2024-01-31,2024-02-10,,Mike Chen,20,Medium,https://jira.example.com/ELEC-004,ELEC-001,ELEC-003,Task,Electrical,,,
-ELEC-005,Electrical Validation Complete,2024-02-20,2024-02-20,,Mike Chen,0,High,https://jira.example.com/ELEC-005,,ELEC-004,Milestone,Electrical,,,
-FW-001,Firmware Development,2024-01-11,2024-02-25,,Alex Rivera,45,High,https://jira.example.com/FW-001,,,Task,Firmware,,,
-FW-002,CAN Protocol Implementation,2024-01-11,2024-01-26,,Alex Rivera,100,High,https://jira.example.com/FW-002,FW-001,,Task,Firmware,,,
-FW-003,Bidirectional Control Logic,2024-01-21,2024-02-10,,Alex Rivera,50,High,https://jira.example.com/FW-003,FW-001,FW-002,Task,Firmware,,,
-FW-004,Safety State Machine,2024-02-05,2024-02-20,,David Park,15,High,https://jira.example.com/FW-004,FW-001,FW-003,Task,Firmware,,,
-FW-005,Firmware Release v1.0,2024-02-25,2024-02-25,,Alex Rivera,0,High,https://jira.example.com/FW-005,,FW-004,Milestone,Firmware,,,
-TEST-001,Test Engineering Phase,2024-01-26,2024-03-06,,Emily Taylor,30,Medium,https://jira.example.com/TEST-001,,,Task,Test,2024-01-21,2024-02-25,5 days later + extended
-TEST-002,Test Plan Development,2024-01-26,2024-02-05,,Emily Taylor,100,Medium,https://jira.example.com/TEST-002,TEST-001,,Task,Test,,,
-TEST-003,DVT Execution,2024-02-10,2024-02-25,,Emily Taylor,25,High,https://jira.example.com/TEST-003,TEST-001,"TEST-002,ELEC-004",Task,Test,,,
-TEST-004,Certification Testing,2024-02-25,2024-03-06,,Emily Taylor,0,High,https://jira.example.com/TEST-004,TEST-001,"TEST-003,FW-005",Task,Test,,,
-TEST-005,Product Certification Complete,2024-03-06,2024-03-06,,Emily Taylor,0,High,https://jira.example.com/TEST-005,,TEST-004,Milestone,Test,,,
-PM-001,Customer Review - Honda,2024-01-31,2024-01-31,,Program Manager,0,High,https://jira.example.com/PM-001,,"MECH-004,ELEC-003",Milestone,Program,,,
-PM-002,Customer Review - Mazda,2024-02-15,2024-02-15,,Program Manager,0,High,https://jira.example.com/PM-002,,FW-004,Milestone,Program,,,
-PM-003,Production Release,2024-03-11,2024-03-11,,Program Manager,0,High,https://jira.example.com/PM-003,,TEST-005,Milestone,Program,,,
+Task ID,Task Name,Start Date,End Date,Duration (Days),Owner,% Complete,Priority,Jira Ticket,Parent Task,Dependencies,Task Type,Swimlane/Category,Project,Original Start,Original End,Slip
+MECH-001,Mechanical Design Phase,2024-01-01,2024-02-15,,John Smith,75,High,https://jira.example.com/MECH-001,,,Task,Mechanical,C1,,
+MECH-002,Enclosure CAD Design,2024-01-01,2024-01-14,,John Smith,100,High,https://jira.example.com/MECH-002,MECH-001,,Task,Mechanical,C1,,
+MECH-003,Thermal Analysis,2024-01-08,2024-01-22,,Sarah Johnson,80,High,https://jira.example.com/MECH-003,MECH-001,MECH-002,Task,Mechanical,C1,,
+MECH-004,Prototype Fabrication,2024-01-22,2024-02-05,,John Smith,40,Medium,https://jira.example.com/MECH-004,MECH-001,MECH-003,Task,Mechanical,C1,2024-01-15,2024-01-29,7 days later
+MECH-005,Mechanical Design Complete,2024-02-15,2024-02-15,,John Smith,0,High,https://jira.example.com/MECH-005,,MECH-004,Milestone,Mechanical,C1,,
+ELEC-001,Electrical Design Phase,2024-01-06,2024-02-20,,Mike Chen,60,High,https://jira.example.com/ELEC-001,,,Task,Electrical,"C1, C2",,
+ELEC-002,Power Stage Design,2024-01-06,2024-01-21,,Mike Chen,100,High,https://jira.example.com/ELEC-002,ELEC-001,,Task,Electrical,"C1, C2",,
+ELEC-003,PCB Layout,2024-01-16,2024-01-31,,Lisa Wong,70,High,https://jira.example.com/ELEC-003,ELEC-001,ELEC-002,Task,Electrical,C2,2024-01-11,2024-01-26,5 days later
+ELEC-004,EMC Pre-compliance,2024-01-31,2024-02-10,,Mike Chen,20,Medium,https://jira.example.com/ELEC-004,ELEC-001,ELEC-003,Task,Electrical,C2,,
+ELEC-005,Electrical Validation Complete,2024-02-20,2024-02-20,,Mike Chen,0,High,https://jira.example.com/ELEC-005,,ELEC-004,Milestone,Electrical,C2,,
+FW-001,Firmware Development,2024-01-11,2024-02-25,,Alex Rivera,45,High,https://jira.example.com/FW-001,,,Task,Firmware,Vue,,
+FW-002,CAN Protocol Implementation,2024-01-11,2024-01-26,,Alex Rivera,100,High,https://jira.example.com/FW-002,FW-001,,Task,Firmware,Vue,,
+FW-003,Bidirectional Control Logic,2024-01-21,2024-02-10,,Alex Rivera,50,High,https://jira.example.com/FW-003,FW-001,FW-002,Task,Firmware,Vue,,
+FW-004,Safety State Machine,2024-02-05,2024-02-20,,David Park,15,High,https://jira.example.com/FW-004,FW-001,FW-003,Task,Firmware,Vue,,
+FW-005,Firmware Release v1.0,2024-02-25,2024-02-25,,Alex Rivera,0,High,https://jira.example.com/FW-005,,FW-004,Milestone,Firmware,Vue,,
+TEST-001,Test Engineering Phase,2024-01-26,2024-03-06,,Emily Taylor,30,Medium,https://jira.example.com/TEST-001,,,Task,Test,"C1, C2",2024-01-21,2024-02-25,5 days later + extended
+TEST-002,Test Plan Development,2024-01-26,2024-02-05,,Emily Taylor,100,Medium,https://jira.example.com/TEST-002,TEST-001,,Task,Test,"C1, C2",,
+TEST-003,DVT Execution,2024-02-10,2024-02-25,,Emily Taylor,25,High,https://jira.example.com/TEST-003,TEST-001,"TEST-002,ELEC-004",Task,Test,C1,,
+TEST-004,Certification Testing,2024-02-25,2024-03-06,,Emily Taylor,0,High,https://jira.example.com/TEST-004,TEST-001,"TEST-003,FW-005",Task,Test,C2,,
+TEST-005,Product Certification Complete,2024-03-06,2024-03-06,,Emily Taylor,0,High,https://jira.example.com/TEST-005,,TEST-004,Milestone,Test,"C1, C2",,
+PM-001,Customer Review - Honda,2024-01-31,2024-01-31,,Program Manager,0,High,https://jira.example.com/PM-001,,"MECH-004,ELEC-003",Milestone,Program,C1,,
+PM-002,Customer Review - Mazda,2024-02-15,2024-02-15,,Program Manager,0,High,https://jira.example.com/PM-002,,FW-004,Milestone,Program,Vue,,
+PM-003,Production Release,2024-03-11,2024-03-11,,Program Manager,0,High,https://jira.example.com/PM-003,,TEST-005,Milestone,Program,"C1, C2",,

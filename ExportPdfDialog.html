@@ -132,18 +132,20 @@
 
       google.script.run
         .withSuccessHandler(function(result) {
-          if (result.success) {
+          if (!result) {
+            showStatus('No response from server. Please try again.', 'error');
+          } else if (result.success) {
             showStatus('Export complete! File saved to Google Drive.', 'success');
             document.getElementById('downloadLink').style.display = 'block';
             document.getElementById('downloadLink').innerHTML =
-              '<a href="' + result.url + '" target="_blank">Download ' + result.filename + '</a>';
+              '<a href="' + result.url + '" target="_blank">Open ' + result.filename + '</a>';
           } else {
-            showStatus(result.message, 'error');
+            showStatus(result.message || 'Unknown error occurred', 'error');
           }
           resetButton();
         })
         .withFailureHandler(function(error) {
-          showStatus('Error: ' + error.message, 'error');
+          showStatus('Error: ' + (error.message || 'Export timed out. Try using File > Download > PDF from the Timeline View sheet instead.'), 'error');
           resetButton();
         })
         .exportTimelineAsPdf();

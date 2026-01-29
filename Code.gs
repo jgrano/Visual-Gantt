@@ -30,6 +30,7 @@ const COLUMN_HEADERS = [
   'Dependencies',
   'Task Type',
   'Swimlane/Category',
+  'Project',  // Project identifier (e.g., "C1", "C2", "Vue")
   'Original Start',
   'Original End',
   'Slip',  // Calculated slip description (e.g., "7 days later")
@@ -51,10 +52,11 @@ const COL = {
   DEPENDENCIES: 10,
   TASK_TYPE: 11,
   SWIMLANE: 12,
-  ORIGINAL_START: 13,
-  ORIGINAL_END: 14,
-  SLIP: 15,
-  MODIFIED: 16
+  PROJECT: 13,
+  ORIGINAL_START: 14,
+  ORIGINAL_END: 15,
+  SLIP: 16,
+  MODIFIED: 17
 };
 
 // Default Jira configuration
@@ -737,8 +739,8 @@ function setupDataSheet() {
   headerRange.setFontColor('#FFFFFF');
   headerRange.setHorizontalAlignment('center');
 
-  // Set column widths (includes Original Start, Original End, Slip, and Modified columns)
-  const columnWidths = [80, 200, 100, 100, 100, 120, 80, 80, 150, 120, 150, 100, 150, 100, 100, 120, 70];
+  // Set column widths (includes Project, Original Start, Original End, Slip, and Modified columns)
+  const columnWidths = [80, 200, 100, 100, 100, 120, 80, 80, 150, 120, 150, 100, 150, 100, 100, 100, 120, 70];
   columnWidths.forEach((width, index) => {
     dataSheet.setColumnWidth(index + 1, width);
   });
@@ -953,8 +955,9 @@ function readTaskData() {
       dependencies: row[10] ? String(row[10]).split(',').map(d => d.trim()).filter(d => d) : [],
       taskType: row[11] ? String(row[11]).trim() : 'Task',
       swimlane: row[12] ? String(row[12]).trim() : 'Default',
-      originalStartDate: parseDate(row[13]),
-      originalEndDate: parseDate(row[14]),
+      project: row[13] ? String(row[13]).trim() : '',
+      originalStartDate: parseDate(row[14]),
+      originalEndDate: parseDate(row[15]),
       rowNumber: rowNum
     };
 
@@ -1932,7 +1935,8 @@ function prepareTasksForChart(tasks, config) {
   let sortedTasks = [...tasks];
 
   if (config.swimlaneGrouping !== 'None') {
-    const groupField = config.swimlaneGrouping === 'Owner' ? 'owner' : 'swimlane';
+    const groupField = config.swimlaneGrouping === 'Owner' ? 'owner' :
+                       config.swimlaneGrouping === 'Project' ? 'project' : 'swimlane';
 
     // Sort by swimlane/group, then by start date
     sortedTasks.sort((a, b) => {

@@ -392,7 +392,8 @@
     }
 
     function drawSwimlanes() {
-      const groupField = config.swimlaneGrouping === 'Owner' ? 'owner' : 'swimlane';
+      const groupField = config.swimlaneGrouping === 'Owner' ? 'owner' :
+                         config.swimlaneGrouping === 'Project' ? 'project' : 'swimlane';
       let currentGroup = null;
       let groupStartIndex = 0;
 
