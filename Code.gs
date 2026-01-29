@@ -19,8 +19,8 @@ const TIMELINE_SHEET_NAME = 'Timeline View';
 const COLUMN_HEADERS = [
   'Task ID',
   'Task Name',
-  'Start Date',
-  'End Date',
+  'Current Start',
+  'Current End',
   'Duration (Days)',
   'Owner',
   '% Complete',
@@ -30,8 +30,9 @@ const COLUMN_HEADERS = [
   'Dependencies',
   'Task Type',
   'Swimlane/Category',
-  'Original Start',  // Tracks original start date for slip visualization
-  'Original End',    // Tracks original end date for slip visualization
+  'Original Start',
+  'Original End',
+  'Slip',  // Calculated slip description (e.g., "7 days later")
   'Modified'  // Tracks local changes for Jira sync
 ];
 
@@ -39,8 +40,8 @@ const COLUMN_HEADERS = [
 const COL = {
   TASK_ID: 0,
   TASK_NAME: 1,
-  START_DATE: 2,
-  END_DATE: 3,
+  CURRENT_START: 2,
+  CURRENT_END: 3,
   DURATION: 4,
   OWNER: 5,
   PERCENT_COMPLETE: 6,
@@ -52,7 +53,8 @@ const COL = {
   SWIMLANE: 12,
   ORIGINAL_START: 13,
   ORIGINAL_END: 14,
-  MODIFIED: 15
+  SLIP: 15,
+  MODIFIED: 16
 };
 
 // Default Jira configuration
@@ -735,8 +737,8 @@ function setupDataSheet() {
   headerRange.setFontColor('#FFFFFF');
   headerRange.setHorizontalAlignment('center');
 
-  // Set column widths (includes Original Start, Original End, and Modified columns)
-  const columnWidths = [80, 200, 100, 100, 100, 120, 80, 80, 150, 120, 150, 100, 150, 100, 100, 70];
+  // Set column widths (includes Original Start, Original End, Slip, and Modified columns)
+  const columnWidths = [80, 200, 100, 100, 100, 120, 80, 80, 150, 120, 150, 100, 150, 100, 100, 120, 70];
   columnWidths.forEach((width, index) => {
     dataSheet.setColumnWidth(index + 1, width);
   });
@@ -769,7 +771,7 @@ function setupDataSheet() {
     .build();
   dataSheet.getRange('G2:G1000').setDataValidation(percentRule);
 
-  // Format date columns (Start Date, End Date, Original Start, Original End)
+  // Format date columns (Current Start, Current End, Original Start, Original End)
   dataSheet.getRange('C2:D1000').setNumberFormat('yyyy-mm-dd');
   dataSheet.getRange('N2:O1000').setNumberFormat('yyyy-mm-dd');
 
@@ -2627,8 +2629,8 @@ function detectConflicts(jiraRows, sheetDataMap) {
         const diffs = [];
 
         // Compare dates
-        const sheetStartDate = parseDate(sheetRow[COL.START_DATE]);
-        const sheetEndDate = parseDate(sheetRow[COL.END_DATE]);
+        const sheetStartDate = parseDate(sheetRow[COL.CURRENT_START]);
+        const sheetEndDate = parseDate(sheetRow[COL.CURRENT_END]);
 
         if (jiraRow.startDate && sheetStartDate &&
             jiraRow.startDate.getTime() !== sheetStartDate.getTime()) {
@@ -2994,14 +2996,14 @@ function pushRowsToJira(rows) {
       };
 
       // Due date (End Date)
-      const endDate = parseDate(row.data[COL.END_DATE]);
+      const endDate = parseDate(row.data[COL.CURRENT_END]);
       if (endDate) {
         updatePayload.fields.duedate = formatDateForJira(endDate);
       }
 
       // Start date (custom field)
       if (config.startDateField) {
-        const startDate = parseDate(row.data[COL.START_DATE]);
+        const startDate = parseDate(row.data[COL.CURRENT_START]);
         if (startDate) {
           updatePayload.fields[config.startDateField] = formatDateForJira(startDate);
         }
@@ -3703,8 +3705,8 @@ function detectSmartsheetConflicts(smartsheetRows, sheetDataMap) {
         const diffs = [];
 
         // Compare dates
-        const sheetStartDate = parseDate(sheetRow[COL.START_DATE]);
-        const sheetEndDate = parseDate(sheetRow[COL.END_DATE]);
+        const sheetStartDate = parseDate(sheetRow[COL.CURRENT_START]);
+        const sheetEndDate = parseDate(sheetRow[COL.CURRENT_END]);
 
         if (ssRow.startDate && sheetStartDate &&
             ssRow.startDate.getTime() !== sheetStartDate.getTime()) {
@@ -4094,7 +4096,7 @@ function pushRowsToSmartsheet(rows) {
 
       // Start Date
       if (mapping.colStartDate) {
-        const startDate = parseDate(row.data[COL.START_DATE]);
+        const startDate = parseDate(row.data[COL.CURRENT_START]);
         if (startDate) {
           cells.push({
             columnId: Number(mapping.colStartDate),
@@ -4105,7 +4107,7 @@ function pushRowsToSmartsheet(rows) {
 
       // End Date
       if (mapping.colEndDate) {
-        const endDate = parseDate(row.data[COL.END_DATE]);
+        const endDate = parseDate(row.data[COL.CURRENT_END]);
         if (endDate) {
           cells.push({
             columnId: Number(mapping.colEndDate),
