@@ -30,6 +30,8 @@ const COLUMN_HEADERS = [
   'Dependencies',
   'Task Type',
   'Swimlane/Category',
+  'Original Start',  // Tracks original start date for slip visualization
+  'Original End',    // Tracks original end date for slip visualization
   'Modified'  // Tracks local changes for Jira sync
 ];
 
@@ -48,7 +50,9 @@ const COL = {
   DEPENDENCIES: 10,
   TASK_TYPE: 11,
   SWIMLANE: 12,
-  MODIFIED: 13
+  ORIGINAL_START: 13,
+  ORIGINAL_END: 14,
+  MODIFIED: 15
 };
 
 // Default Jira configuration
@@ -731,18 +735,18 @@ function setupDataSheet() {
   headerRange.setFontColor('#FFFFFF');
   headerRange.setHorizontalAlignment('center');
 
-  // Set column widths (includes Modified column)
-  const columnWidths = [80, 200, 100, 100, 100, 120, 80, 80, 150, 120, 150, 100, 150, 70];
+  // Set column widths (includes Original Start, Original End, and Modified columns)
+  const columnWidths = [80, 200, 100, 100, 100, 120, 80, 80, 150, 120, 150, 100, 150, 100, 100, 70];
   columnWidths.forEach((width, index) => {
     dataSheet.setColumnWidth(index + 1, width);
   });
 
-  // Add data validation for Modified column (Yes or empty)
+  // Add data validation for Modified column (Yes or empty) - column P (16th)
   const modifiedRule = SpreadsheetApp.newDataValidation()
     .requireValueInList(['Yes', ''], true)
     .setAllowInvalid(true)
     .build();
-  dataSheet.getRange('N2:N1000').setDataValidation(modifiedRule);
+  dataSheet.getRange('P2:P1000').setDataValidation(modifiedRule);
 
   // Add data validation for Priority column
   const priorityRule = SpreadsheetApp.newDataValidation()
@@ -765,8 +769,9 @@ function setupDataSheet() {
     .build();
   dataSheet.getRange('G2:G1000').setDataValidation(percentRule);
 
-  // Format date columns
+  // Format date columns (Start Date, End Date, Original Start, Original End)
   dataSheet.getRange('C2:D1000').setNumberFormat('yyyy-mm-dd');
+  dataSheet.getRange('N2:O1000').setNumberFormat('yyyy-mm-dd');
 
   // Format percentage column
   dataSheet.getRange('G2:G1000').setNumberFormat('0"%"');
@@ -835,37 +840,37 @@ function createSampleData() {
 
   const sampleData = [
     // Mechanical Engineering Tasks
-    ['MECH-001', 'Mechanical Design Phase', addDays(baseDate, 0), addDays(baseDate, 45), '', 'John Smith', 75, 'High', 'https://jira.example.com/MECH-001', '', '', 'Task', 'Mechanical', ''],
-    ['MECH-002', 'Enclosure CAD Design', addDays(baseDate, 0), addDays(baseDate, 14), '', 'John Smith', 100, 'High', 'https://jira.example.com/MECH-002', 'MECH-001', '', 'Task', 'Mechanical', ''],
-    ['MECH-003', 'Thermal Analysis', addDays(baseDate, 7), addDays(baseDate, 21), '', 'Sarah Johnson', 80, 'High', 'https://jira.example.com/MECH-003', 'MECH-001', 'MECH-002', 'Task', 'Mechanical', ''],
-    ['MECH-004', 'Prototype Fabrication', addDays(baseDate, 21), addDays(baseDate, 35), '', 'John Smith', 40, 'Medium', 'https://jira.example.com/MECH-004', 'MECH-001', 'MECH-003', 'Task', 'Mechanical', ''],
-    ['MECH-005', 'Mechanical Design Complete', addDays(baseDate, 45), addDays(baseDate, 45), '', 'John Smith', 0, 'High', 'https://jira.example.com/MECH-005', '', 'MECH-004', 'Milestone', 'Mechanical', ''],
+    ['MECH-001', 'Mechanical Design Phase', addDays(baseDate, 0), addDays(baseDate, 45), '', 'John Smith', 75, 'High', 'https://jira.example.com/MECH-001', '', '', 'Task', 'Mechanical', '', '', ''],
+    ['MECH-002', 'Enclosure CAD Design', addDays(baseDate, 0), addDays(baseDate, 14), '', 'John Smith', 100, 'High', 'https://jira.example.com/MECH-002', 'MECH-001', '', 'Task', 'Mechanical', '', '', ''],
+    ['MECH-003', 'Thermal Analysis', addDays(baseDate, 7), addDays(baseDate, 21), '', 'Sarah Johnson', 80, 'High', 'https://jira.example.com/MECH-003', 'MECH-001', 'MECH-002', 'Task', 'Mechanical', '', '', ''],
+    ['MECH-004', 'Prototype Fabrication', addDays(baseDate, 21), addDays(baseDate, 35), '', 'John Smith', 40, 'Medium', 'https://jira.example.com/MECH-004', 'MECH-001', 'MECH-003', 'Task', 'Mechanical', addDays(baseDate, 14), addDays(baseDate, 28), ''],
+    ['MECH-005', 'Mechanical Design Complete', addDays(baseDate, 45), addDays(baseDate, 45), '', 'John Smith', 0, 'High', 'https://jira.example.com/MECH-005', '', 'MECH-004', 'Milestone', 'Mechanical', '', '', ''],
 
     // Electrical Engineering Tasks
-    ['ELEC-001', 'Electrical Design Phase', addDays(baseDate, 5), addDays(baseDate, 50), '', 'Mike Chen', 60, 'High', 'https://jira.example.com/ELEC-001', '', '', 'Task', 'Electrical', ''],
-    ['ELEC-002', 'Power Stage Design', addDays(baseDate, 5), addDays(baseDate, 20), '', 'Mike Chen', 100, 'High', 'https://jira.example.com/ELEC-002', 'ELEC-001', '', 'Task', 'Electrical', ''],
-    ['ELEC-003', 'PCB Layout', addDays(baseDate, 15), addDays(baseDate, 30), '', 'Lisa Wong', 70, 'High', 'https://jira.example.com/ELEC-003', 'ELEC-001', 'ELEC-002', 'Task', 'Electrical', ''],
-    ['ELEC-004', 'EMC Pre-compliance', addDays(baseDate, 30), addDays(baseDate, 40), '', 'Mike Chen', 20, 'Medium', 'https://jira.example.com/ELEC-004', 'ELEC-001', 'ELEC-003', 'Task', 'Electrical', ''],
-    ['ELEC-005', 'Electrical Validation Complete', addDays(baseDate, 50), addDays(baseDate, 50), '', 'Mike Chen', 0, 'High', 'https://jira.example.com/ELEC-005', '', 'ELEC-004', 'Milestone', 'Electrical', ''],
+    ['ELEC-001', 'Electrical Design Phase', addDays(baseDate, 5), addDays(baseDate, 50), '', 'Mike Chen', 60, 'High', 'https://jira.example.com/ELEC-001', '', '', 'Task', 'Electrical', '', '', ''],
+    ['ELEC-002', 'Power Stage Design', addDays(baseDate, 5), addDays(baseDate, 20), '', 'Mike Chen', 100, 'High', 'https://jira.example.com/ELEC-002', 'ELEC-001', '', 'Task', 'Electrical', '', '', ''],
+    ['ELEC-003', 'PCB Layout', addDays(baseDate, 15), addDays(baseDate, 30), '', 'Lisa Wong', 70, 'High', 'https://jira.example.com/ELEC-003', 'ELEC-001', 'ELEC-002', 'Task', 'Electrical', addDays(baseDate, 10), addDays(baseDate, 25), ''],
+    ['ELEC-004', 'EMC Pre-compliance', addDays(baseDate, 30), addDays(baseDate, 40), '', 'Mike Chen', 20, 'Medium', 'https://jira.example.com/ELEC-004', 'ELEC-001', 'ELEC-003', 'Task', 'Electrical', '', '', ''],
+    ['ELEC-005', 'Electrical Validation Complete', addDays(baseDate, 50), addDays(baseDate, 50), '', 'Mike Chen', 0, 'High', 'https://jira.example.com/ELEC-005', '', 'ELEC-004', 'Milestone', 'Electrical', '', '', ''],
 
     // Firmware Development Tasks
-    ['FW-001', 'Firmware Development', addDays(baseDate, 10), addDays(baseDate, 55), '', 'Alex Rivera', 45, 'High', 'https://jira.example.com/FW-001', '', '', 'Task', 'Firmware', ''],
-    ['FW-002', 'CAN Protocol Implementation', addDays(baseDate, 10), addDays(baseDate, 25), '', 'Alex Rivera', 100, 'High', 'https://jira.example.com/FW-002', 'FW-001', '', 'Task', 'Firmware', ''],
-    ['FW-003', 'Bidirectional Control Logic', addDays(baseDate, 20), addDays(baseDate, 40), '', 'Alex Rivera', 50, 'High', 'https://jira.example.com/FW-003', 'FW-001', 'FW-002', 'Task', 'Firmware', ''],
-    ['FW-004', 'Safety State Machine', addDays(baseDate, 35), addDays(baseDate, 50), '', 'David Park', 15, 'High', 'https://jira.example.com/FW-004', 'FW-001', 'FW-003', 'Task', 'Firmware', ''],
-    ['FW-005', 'Firmware Release v1.0', addDays(baseDate, 55), addDays(baseDate, 55), '', 'Alex Rivera', 0, 'High', 'https://jira.example.com/FW-005', '', 'FW-004', 'Milestone', 'Firmware', ''],
+    ['FW-001', 'Firmware Development', addDays(baseDate, 10), addDays(baseDate, 55), '', 'Alex Rivera', 45, 'High', 'https://jira.example.com/FW-001', '', '', 'Task', 'Firmware', '', '', ''],
+    ['FW-002', 'CAN Protocol Implementation', addDays(baseDate, 10), addDays(baseDate, 25), '', 'Alex Rivera', 100, 'High', 'https://jira.example.com/FW-002', 'FW-001', '', 'Task', 'Firmware', '', '', ''],
+    ['FW-003', 'Bidirectional Control Logic', addDays(baseDate, 20), addDays(baseDate, 40), '', 'Alex Rivera', 50, 'High', 'https://jira.example.com/FW-003', 'FW-001', 'FW-002', 'Task', 'Firmware', '', '', ''],
+    ['FW-004', 'Safety State Machine', addDays(baseDate, 35), addDays(baseDate, 50), '', 'David Park', 15, 'High', 'https://jira.example.com/FW-004', 'FW-001', 'FW-003', 'Task', 'Firmware', '', '', ''],
+    ['FW-005', 'Firmware Release v1.0', addDays(baseDate, 55), addDays(baseDate, 55), '', 'Alex Rivera', 0, 'High', 'https://jira.example.com/FW-005', '', 'FW-004', 'Milestone', 'Firmware', '', '', ''],
 
     // Test Engineering Tasks
-    ['TEST-001', 'Test Engineering Phase', addDays(baseDate, 25), addDays(baseDate, 65), '', 'Emily Taylor', 30, 'Medium', 'https://jira.example.com/TEST-001', '', '', 'Task', 'Test', ''],
-    ['TEST-002', 'Test Plan Development', addDays(baseDate, 25), addDays(baseDate, 35), '', 'Emily Taylor', 100, 'Medium', 'https://jira.example.com/TEST-002', 'TEST-001', '', 'Task', 'Test', ''],
-    ['TEST-003', 'DVT Execution', addDays(baseDate, 40), addDays(baseDate, 55), '', 'Emily Taylor', 25, 'High', 'https://jira.example.com/TEST-003', 'TEST-001', 'TEST-002,ELEC-004', 'Task', 'Test', ''],
-    ['TEST-004', 'Certification Testing', addDays(baseDate, 55), addDays(baseDate, 65), '', 'Emily Taylor', 0, 'High', 'https://jira.example.com/TEST-004', 'TEST-001', 'TEST-003,FW-005', 'Task', 'Test', ''],
-    ['TEST-005', 'Product Certification Complete', addDays(baseDate, 65), addDays(baseDate, 65), '', 'Emily Taylor', 0, 'High', 'https://jira.example.com/TEST-005', '', 'TEST-004', 'Milestone', 'Test', ''],
+    ['TEST-001', 'Test Engineering Phase', addDays(baseDate, 25), addDays(baseDate, 65), '', 'Emily Taylor', 30, 'Medium', 'https://jira.example.com/TEST-001', '', '', 'Task', 'Test', addDays(baseDate, 20), addDays(baseDate, 55), ''],
+    ['TEST-002', 'Test Plan Development', addDays(baseDate, 25), addDays(baseDate, 35), '', 'Emily Taylor', 100, 'Medium', 'https://jira.example.com/TEST-002', 'TEST-001', '', 'Task', 'Test', '', '', ''],
+    ['TEST-003', 'DVT Execution', addDays(baseDate, 40), addDays(baseDate, 55), '', 'Emily Taylor', 25, 'High', 'https://jira.example.com/TEST-003', 'TEST-001', 'TEST-002,ELEC-004', 'Task', 'Test', '', '', ''],
+    ['TEST-004', 'Certification Testing', addDays(baseDate, 55), addDays(baseDate, 65), '', 'Emily Taylor', 0, 'High', 'https://jira.example.com/TEST-004', 'TEST-001', 'TEST-003,FW-005', 'Task', 'Test', '', '', ''],
+    ['TEST-005', 'Product Certification Complete', addDays(baseDate, 65), addDays(baseDate, 65), '', 'Emily Taylor', 0, 'High', 'https://jira.example.com/TEST-005', '', 'TEST-004', 'Milestone', 'Test', '', '', ''],
 
     // Program Management
-    ['PM-001', 'Customer Review - Honda', addDays(baseDate, 30), addDays(baseDate, 30), '', 'Program Manager', 0, 'High', 'https://jira.example.com/PM-001', '', 'MECH-004,ELEC-003', 'Milestone', 'Program', ''],
-    ['PM-002', 'Customer Review - Mazda', addDays(baseDate, 45), addDays(baseDate, 45), '', 'Program Manager', 0, 'High', 'https://jira.example.com/PM-002', '', 'FW-004', 'Milestone', 'Program', ''],
-    ['PM-003', 'Production Release', addDays(baseDate, 70), addDays(baseDate, 70), '', 'Program Manager', 0, 'High', 'https://jira.example.com/PM-003', '', 'TEST-005', 'Milestone', 'Program', '']
+    ['PM-001', 'Customer Review - Honda', addDays(baseDate, 30), addDays(baseDate, 30), '', 'Program Manager', 0, 'High', 'https://jira.example.com/PM-001', '', 'MECH-004,ELEC-003', 'Milestone', 'Program', '', '', ''],
+    ['PM-002', 'Customer Review - Mazda', addDays(baseDate, 45), addDays(baseDate, 45), '', 'Program Manager', 0, 'High', 'https://jira.example.com/PM-002', '', 'FW-004', 'Milestone', 'Program', '', '', ''],
+    ['PM-003', 'Production Release', addDays(baseDate, 70), addDays(baseDate, 70), '', 'Program Manager', 0, 'High', 'https://jira.example.com/PM-003', '', 'TEST-005', 'Milestone', 'Program', '', '', '']
   ];
 
   // Write sample data
@@ -946,6 +951,8 @@ function readTaskData() {
       dependencies: row[10] ? String(row[10]).split(',').map(d => d.trim()).filter(d => d) : [],
       taskType: row[11] ? String(row[11]).trim() : 'Task',
       swimlane: row[12] ? String(row[12]).trim() : 'Default',
+      originalStartDate: parseDate(row[13]),
+      originalEndDate: parseDate(row[14]),
       rowNumber: rowNum
     };
 
@@ -1884,6 +1891,18 @@ function prepareTasksForChart(tasks, config) {
     // Convert dates to ISO strings for JSON
     task.startDateStr = task.startDate.toISOString();
     task.endDateStr = task.endDate.toISOString();
+
+    // Include original dates if they exist and differ from current dates
+    if (task.originalStartDate) {
+      task.originalStartDateStr = task.originalStartDate.toISOString();
+    }
+    if (task.originalEndDate) {
+      task.originalEndDateStr = task.originalEndDate.toISOString();
+    }
+
+    // Flag if dates have slipped/changed
+    task.hasDateChange = (task.originalStartDate && task.originalStartDate.getTime() !== task.startDate.getTime()) ||
+                         (task.originalEndDate && task.originalEndDate.getTime() !== task.endDate.getTime());
   });
 
   return sortedTasks;
@@ -2725,7 +2744,9 @@ function jiraRowToSheetRow(jiraRow) {
     jiraRow.dependencies,
     jiraRow.taskType,
     jiraRow.swimlane,
-    ''  // Modified = empty (fresh from Jira)
+    '',  // Original Start = empty (fresh from Jira)
+    '',  // Original End = empty (fresh from Jira)
+    ''   // Modified = empty (fresh from Jira)
   ];
 }
 
@@ -3569,7 +3590,9 @@ function localRowToSheetRow(localRow) {
     localRow.dependencies,
     localRow.taskType,
     localRow.swimlane,
-    ''  // Modified = empty (fresh from Smartsheet)
+    '',  // Original Start = empty (fresh from Smartsheet)
+    '',  // Original End = empty (fresh from Smartsheet)
+    ''   // Modified = empty (fresh from Smartsheet)
   ];
 }
 

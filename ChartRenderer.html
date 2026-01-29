@@ -237,7 +237,8 @@
       swimlaneHeader: '#F8F9FA',
       dependency: '#9E9E9E',
       progress: 'rgba(255,255,255,0.4)',
-      milestone: '#9C27B0'
+      milestone: '#9C27B0',
+      dateSlip: '#888888'  // Color for original date outline (date slip indicator)
     };
 
     // Render functions
@@ -537,6 +538,11 @@
         const y = taskToY(index);
         const width = dateToX(task.endDateStr) - x;
 
+        // Draw original date outline if dates have changed (slip indicator)
+        if (task.hasDateChange && task.taskType !== 'Milestone') {
+          drawOriginalDateOutline(task, y);
+        }
+
         if (task.taskType === 'Milestone') {
           // Draw diamond for milestones
           drawMilestone(x, y + BAR_HEIGHT / 2, task.color);
@@ -545,6 +551,26 @@
           drawTaskBar(x, y, Math.max(width, 4), task);
         }
       });
+    }
+
+    function drawOriginalDateOutline(task, y) {
+      // Determine the original date range to draw
+      const origStartDate = task.originalStartDateStr || task.startDateStr;
+      const origEndDate = task.originalEndDateStr || task.endDateStr;
+
+      const origX = dateToX(origStartDate);
+      const origWidth = dateToX(origEndDate) - origX;
+      const radius = 4;
+
+      // Draw dashed outline for the original date range
+      ctx.strokeStyle = COLORS.dateSlip;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 3]);  // Dashed line pattern
+
+      roundRect(ctx, origX, y, Math.max(origWidth, 4), BAR_HEIGHT, radius);
+      ctx.stroke();
+
+      ctx.setLineDash([]);  // Reset to solid lines
     }
 
     function drawTaskBar(x, y, width, task) {
@@ -721,6 +747,12 @@
       // Progress indicator
       if (config.showPercentComplete) {
         html += '<div class="legend-item"><div class="legend-color" style="background:linear-gradient(90deg,rgba(255,255,255,0.4) 50%,#2196F3 50%)"></div>% Complete</div>';
+      }
+
+      // Date slip indicator (show if any tasks have date changes)
+      const hasDateChanges = tasks.some(task => task.hasDateChange);
+      if (hasDateChanges) {
+        html += '<div class="legend-item"><div class="legend-color" style="background:transparent;border:2px dashed #888888;"></div>Original Dates</div>';
       }
 
       legendEl.innerHTML = html;
