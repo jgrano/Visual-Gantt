@@ -2195,33 +2195,65 @@ function exportTimelineAsPdf() {
     const timelineSheet = ss.getSheetByName(TIMELINE_SHEET_NAME);
 
     if (!timelineSheet) {
-      return { success: false, message: 'No timeline found. Please generate a timeline first.' };
+      return { success: false, message: 'No timeline found. Please generate a timeline first using "Save to Sheet".' };
     }
+
+    // Check if timeline sheet has any images
+    const images = timelineSheet.getImages();
+    if (images.length === 0) {
+      return { success: false, message: 'No chart image found. Please generate a timeline and click "Save to Sheet" first.' };
+    }
+
+    // Flush any pending changes
+    SpreadsheetApp.flush();
 
     // Get spreadsheet ID and sheet ID
     const ssId = ss.getId();
     const sheetId = timelineSheet.getSheetId();
 
-    // Generate PDF export URL
+    // Get the chart dimensions to set proper page size
+    const config = getConfig();
+    const chartWidth = config.chartWidth || 1200;
+    const chartHeight = config.chartHeight || 800;
+
+    // Calculate page size based on chart dimensions (use larger format for bigger charts)
+    let pageSize = 'A4';
+    if (chartWidth > 1400 || chartHeight > 900) {
+      pageSize = 'A3';
+    }
+    if (chartWidth > 2000 || chartHeight > 1400) {
+      pageSize = 'A2';
+    }
+
+    // Generate PDF export URL with proper scaling
     const url = `https://docs.google.com/spreadsheets/d/${ssId}/export?` +
       `format=pdf&` +
       `gid=${sheetId}&` +
-      `size=A4&` +
+      `size=${pageSize}&` +
       `portrait=false&` +
       `fitw=true&` +
+      `fith=true&` +
       `gridlines=false&` +
       `printtitle=false&` +
       `sheetnames=false&` +
       `pagenum=false&` +
-      `fzr=false`;
+      `fzr=false&` +
+      `scale=4`;  // 4 = Fit to width
 
     // Fetch the PDF
     const token = ScriptApp.getOAuthToken();
     const response = UrlFetchApp.fetch(url, {
       headers: {
         'Authorization': 'Bearer ' + token
-      }
+      },
+      muteHttpExceptions: true
     });
+
+    // Check response status
+    const responseCode = response.getResponseCode();
+    if (responseCode !== 200) {
+      return { success: false, message: `PDF export failed (HTTP ${responseCode}). Try using File > Download > PDF from the Timeline View sheet.` };
+    }
 
     // Generate filename
     const timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd_HHmmss');
@@ -2229,6 +2261,12 @@ function exportTimelineAsPdf() {
 
     // Save to Drive
     const blob = response.getBlob().setName(filename);
+
+    // Check if blob is empty
+    if (blob.getBytes().length < 1000) {
+      return { success: false, message: 'PDF appears to be empty. Over-grid images may not export properly. Try: File > Download > PDF from the Timeline View sheet instead.' };
+    }
+
     const file = DriveApp.createFile(blob);
 
     return {
@@ -2237,7 +2275,7 @@ function exportTimelineAsPdf() {
       filename: filename
     };
   } catch (e) {
-    return { success: false, message: 'Error exporting PDF: ' + e.message };
+    return { success: false, message: 'Error exporting PDF: ' + e.message + '. Try using File > Download > PDF from the Timeline View sheet instead.' };
   }
 }
 

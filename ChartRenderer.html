@@ -682,13 +682,21 @@
         const displayName = truncateText(task.name, maxWidth);
         ctx.fillText(displayName, x, y);
 
-        // Owner (if space permits)
-        if (task.owner && !task.isSubtask) {
-          ctx.fillStyle = COLORS.textLight;
+        // Owner and Project (if space permits)
+        if (!task.isSubtask) {
           ctx.font = `${FONT_SIZE - 2}px 'Segoe UI', sans-serif`;
-          const ownerY = y + 12;
-          if (ownerY < taskToY(index + 1)) {
-            ctx.fillText(task.owner, x, ownerY);
+          const detailY = y + 12;
+
+          if (detailY < taskToY(index + 1)) {
+            // Build detail string: "Owner" or "Owner | Project" or just "Project"
+            let detailParts = [];
+            if (task.owner) detailParts.push(task.owner);
+            if (task.project) detailParts.push(task.project);
+
+            if (detailParts.length > 0) {
+              ctx.fillStyle = COLORS.textLight;
+              ctx.fillText(detailParts.join(' · '), x, detailY);
+            }
           }
         }
       });
