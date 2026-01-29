@@ -537,39 +537,61 @@
       tasks.forEach((task, index) => {
         const x = dateToX(task.startDateStr);
         const y = taskToY(index);
-        const width = dateToX(task.endDateStr) - x;
 
-        // Draw original date outline if dates have changed (slip indicator)
-        if (task.hasDateChange && task.taskType !== 'Milestone') {
-          drawOriginalDateOutline(task, y);
+        // Check if task has slipped (current end is after original end)
+        const hasSlip = task.hasDateChange && task.originalEndDateStr &&
+                        new Date(task.endDateStr) > new Date(task.originalEndDateStr);
+
+        // Calculate bar width - use original end if slipped, otherwise current end
+        let barEndDate = task.endDateStr;
+        if (hasSlip) {
+          barEndDate = task.originalEndDateStr;
         }
+        const width = dateToX(barEndDate) - x;
 
         if (task.taskType === 'Milestone') {
           // Draw diamond for milestones
           drawMilestone(x, y + BAR_HEIGHT / 2, task.color);
         } else {
-          // Draw task bar
+          // Draw task bar (to original end if slipped)
           drawTaskBar(x, y, Math.max(width, 4), task);
+
+          // Draw slip extension AFTER the main bar
+          if (hasSlip) {
+            drawSlipExtension(task, y);
+          }
         }
       });
     }
 
-    function drawOriginalDateOutline(task, y) {
-      // Determine the original date range to draw
-      const origStartDate = task.originalStartDateStr || task.startDateStr;
-      const origEndDate = task.originalEndDateStr || task.endDateStr;
+    function drawSlipExtension(task, y) {
+      // Draw dashed extension from original end to current end (slip visualization)
+      const origEndX = dateToX(task.originalEndDateStr);
+      const currentEndX = dateToX(task.endDateStr);
+      const barCenterY = y + BAR_HEIGHT / 2;
 
-      const origX = dateToX(origStartDate);
-      const origWidth = dateToX(origEndDate) - origX;
-      const radius = 4;
+      // Draw horizontal dashed line from original end to current end
+      ctx.strokeStyle = task.color;
+      ctx.lineWidth = 3;
+      ctx.setLineDash([8, 4]);  // Dashed line pattern
 
-      // Draw dashed outline for the original date range
-      ctx.strokeStyle = COLORS.dateSlip;
-      ctx.lineWidth = 2;
-      ctx.setLineDash([4, 3]);  // Dashed line pattern
-
-      roundRect(ctx, origX, y, Math.max(origWidth, 4), BAR_HEIGHT, radius);
+      ctx.beginPath();
+      ctx.moveTo(origEndX, barCenterY);
+      ctx.lineTo(currentEndX - 8, barCenterY);
       ctx.stroke();
+
+      // Draw end cap - vertical dashed bar
+      ctx.beginPath();
+      ctx.moveTo(currentEndX, y + 2);
+      ctx.lineTo(currentEndX, y + BAR_HEIGHT - 2);
+      ctx.stroke();
+
+      // Draw small circle at the end
+      ctx.setLineDash([]);  // Solid for circle
+      ctx.fillStyle = task.color;
+      ctx.beginPath();
+      ctx.arc(currentEndX - 4, barCenterY, 4, 0, Math.PI * 2);
+      ctx.fill();
 
       ctx.setLineDash([]);  // Reset to solid lines
     }
@@ -750,10 +772,13 @@
         html += '<div class="legend-item"><div class="legend-color" style="background:linear-gradient(90deg,rgba(255,255,255,0.4) 50%,#2196F3 50%)"></div>% Complete</div>';
       }
 
-      // Date slip indicator (show if any tasks have date changes)
-      const hasDateChanges = tasks.some(task => task.hasDateChange);
-      if (hasDateChanges) {
-        html += '<div class="legend-item"><div class="legend-color" style="background:transparent;border:2px dashed #888888;"></div>Original Dates</div>';
+      // Date slip indicator (show if any tasks have slipped)
+      const hasSlippedTasks = tasks.some(task =>
+        task.hasDateChange && task.originalEndDateStr &&
+        new Date(task.endDateStr) > new Date(task.originalEndDateStr)
+      );
+      if (hasSlippedTasks) {
+        html += '<div class="legend-item"><div class="legend-color" style="background:transparent;border:none;position:relative;"><span style="display:block;border-top:3px dashed #E53935;width:100%;position:absolute;top:50%;"></span></div>Schedule Slip</div>';
       }
 
       legendEl.innerHTML = html;
