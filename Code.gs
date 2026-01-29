@@ -461,7 +461,8 @@ function onOpen(e) {
     .addItem('Check Authorization Status', 'showAuthorizationDiagnostics')
     .addSeparator()
     .addItem('Storage Diagnostics', 'showStorageDiagnostics')
-    .addItem('Migrate Settings', 'showMigrationDialog');
+    .addItem('Migrate Settings to Drive', 'showMigrationDialog')
+    .addItem('Open Settings Folder', 'openSettingsFolder');
 
   ui.createMenu('Visual Gantt')
     .addItem('Generate Timeline', 'generateTimeline')
@@ -1096,167 +1097,219 @@ function detectCircularDependencies(tasks, taskMap) {
 }
 
 // ============================================================================
-// STORAGE FUNCTIONS (HIDDEN SHEET + PROPERTIES SERVICE FALLBACK)
+// GOOGLE DRIVE FILE STORAGE
 // ============================================================================
+// Stores settings in a JSON file in the user's Google Drive.
+// This approach avoids PropertiesService permission issues in Google Workspace.
 
-// Hidden sheet name for storing configuration
-const CONFIG_SHEET_NAME = '__VisualGanttConfig__';
+const DRIVE_FOLDER_NAME = 'Visual Gantt Settings';
+const DRIVE_CONFIG_FILENAME = 'config.json';
+const CACHE_KEY_FILE_ID = 'visualGantt_configFileId';
 
 /**
- * Gets or creates the hidden configuration sheet
- * @returns {GoogleAppsScript.Spreadsheet.Sheet|null} The config sheet or null if unavailable
+ * Gets or creates the Visual Gantt settings folder in Google Drive
+ * @returns {GoogleAppsScript.Drive.Folder} The settings folder
  */
-function getConfigSheet_() {
+function getOrCreateConfigFolder_() {
+  const folders = DriveApp.getFoldersByName(DRIVE_FOLDER_NAME);
+
+  if (folders.hasNext()) {
+    const folder = folders.next();
+    Logger.log('Found existing config folder: ' + folder.getId());
+    return folder;
+  }
+
+  // Create new folder
+  const folder = DriveApp.createFolder(DRIVE_FOLDER_NAME);
+  Logger.log('Created new config folder: ' + folder.getId());
+  return folder;
+}
+
+/**
+ * Gets the config file ID from cache (to avoid repeated Drive searches)
+ * @returns {string|null} The cached file ID or null
+ */
+function getCachedConfigFileId_() {
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    if (!ss) {
-      Logger.log('No active spreadsheet available');
-      return null;
-    }
-
-    let configSheet = ss.getSheetByName(CONFIG_SHEET_NAME);
-
-    if (!configSheet) {
-      // Create the config sheet
-      configSheet = ss.insertSheet(CONFIG_SHEET_NAME);
-
-      // Set up headers
-      configSheet.getRange('A1').setValue('__key__');
-      configSheet.getRange('B1').setValue('__value__');
-
-      // Hide the sheet immediately
-      configSheet.hideSheet();
-
-      Logger.log('Created and hid config sheet: ' + CONFIG_SHEET_NAME);
-    }
-
-    return configSheet;
+    const cache = CacheService.getUserCache();
+    return cache.get(CACHE_KEY_FILE_ID);
   } catch (e) {
-    Logger.log('Error getting/creating config sheet: ' + e.message);
+    Logger.log('Cache read failed: ' + e.message);
     return null;
   }
 }
 
 /**
- * Reads a setting value from the hidden config sheet
- * @param {string} key - The setting key to read
- * @returns {string|null} The setting value or null if not found
+ * Caches the config file ID for faster lookups
+ * @param {string} fileId - The file ID to cache
  */
-function readFromConfigSheet_(key) {
+function setCachedConfigFileId_(fileId) {
   try {
-    const configSheet = getConfigSheet_();
-    if (!configSheet) {
-      return null;
-    }
-
-    // Get all data from the sheet
-    const lastRow = configSheet.getLastRow();
-    if (lastRow <= 1) {
-      // Only header row exists
-      return null;
-    }
-
-    const data = configSheet.getRange(2, 1, lastRow - 1, 2).getValues();
-
-    for (let i = 0; i < data.length; i++) {
-      if (data[i][0] === key) {
-        const value = data[i][1];
-        return value ? String(value) : null;
-      }
-    }
-
-    return null;
+    const cache = CacheService.getUserCache();
+    // Cache for 6 hours (max allowed)
+    cache.put(CACHE_KEY_FILE_ID, fileId, 21600);
   } catch (e) {
-    Logger.log('Error reading from config sheet: ' + e.message);
-    return null;
+    Logger.log('Cache write failed: ' + e.message);
   }
 }
 
 /**
- * Writes a setting value to the hidden config sheet
- * @param {string} key - The setting key
- * @param {string} value - The setting value
- * @returns {boolean} True if successfully written
+ * Gets the config file by ID, validating it still exists
+ * @param {string} fileId - The file ID
+ * @returns {GoogleAppsScript.Drive.File|null} The file or null if not found
  */
-function writeToConfigSheet_(key, value) {
+function getConfigFileById_(fileId) {
   try {
-    const configSheet = getConfigSheet_();
-    if (!configSheet) {
-      return false;
+    const file = DriveApp.getFileById(fileId);
+    // Verify it's our config file and not trashed
+    if (file && !file.isTrashed() && file.getName() === DRIVE_CONFIG_FILENAME) {
+      return file;
+    }
+  } catch (e) {
+    Logger.log('File lookup by ID failed: ' + e.message);
+  }
+  return null;
+}
+
+/**
+ * Gets or creates the config.json file in the settings folder
+ * @returns {GoogleAppsScript.Drive.File} The config file
+ */
+function getOrCreateConfigFile_() {
+  // Try cached file ID first
+  const cachedId = getCachedConfigFileId_();
+  if (cachedId) {
+    const cachedFile = getConfigFileById_(cachedId);
+    if (cachedFile) {
+      return cachedFile;
+    }
+  }
+
+  // Search in the config folder
+  const folder = getOrCreateConfigFolder_();
+  const files = folder.getFilesByName(DRIVE_CONFIG_FILENAME);
+
+  if (files.hasNext()) {
+    const file = files.next();
+    setCachedConfigFileId_(file.getId());
+    Logger.log('Found existing config file: ' + file.getId());
+    return file;
+  }
+
+  // Create new config file with empty settings
+  const initialConfig = {};
+  const file = folder.createFile(DRIVE_CONFIG_FILENAME, JSON.stringify(initialConfig, null, 2), 'application/json');
+  setCachedConfigFileId_(file.getId());
+  Logger.log('Created new config file: ' + file.getId());
+  return file;
+}
+
+/**
+ * Reads all settings from the Drive config file
+ * @returns {Object} The settings object (empty object if file doesn't exist or is empty)
+ */
+function readAllSettingsFromDrive_() {
+  try {
+    const file = getOrCreateConfigFile_();
+    const content = file.getBlob().getDataAsString();
+
+    if (!content || content.trim() === '') {
+      return {};
     }
 
-    // Find existing row with this key
-    const lastRow = configSheet.getLastRow();
-    let existingRow = -1;
+    return JSON.parse(content);
+  } catch (e) {
+    Logger.log('Error reading from Drive: ' + e.message);
+    return {};
+  }
+}
 
-    if (lastRow > 1) {
-      const keys = configSheet.getRange(2, 1, lastRow - 1, 1).getValues();
-      for (let i = 0; i < keys.length; i++) {
-        if (keys[i][0] === key) {
-          existingRow = i + 2; // +2 for 1-based index and header row
-          break;
-        }
-      }
-    }
-
-    if (existingRow > 0) {
-      // Update existing row
-      configSheet.getRange(existingRow, 2).setValue(value);
-    } else {
-      // Add new row
-      const newRow = lastRow + 1;
-      configSheet.getRange(newRow, 1).setValue(key);
-      configSheet.getRange(newRow, 2).setValue(value);
-    }
-
-    Logger.log('Saved setting to config sheet: ' + key);
+/**
+ * Writes all settings to the Drive config file
+ * @param {Object} settings - The settings object to save
+ * @returns {boolean} True if successful
+ */
+function writeAllSettingsToDrive_(settings) {
+  try {
+    const file = getOrCreateConfigFile_();
+    const content = JSON.stringify(settings, null, 2);
+    file.setContent(content);
+    Logger.log('Saved all settings to Drive');
     return true;
   } catch (e) {
-    Logger.log('Error writing to config sheet: ' + e.message);
-    return false;
+    Logger.log('Error writing to Drive: ' + e.message);
+    throw new Error('Failed to save settings to Google Drive: ' + e.message);
   }
 }
 
 /**
- * Deletes a setting from the hidden config sheet
- * @param {string} key - The setting key to delete
- * @returns {boolean} True if successfully deleted
- */
-function deleteFromConfigSheet_(key) {
-  try {
-    const configSheet = getConfigSheet_();
-    if (!configSheet) {
-      return false;
-    }
-
-    const lastRow = configSheet.getLastRow();
-    if (lastRow <= 1) {
-      return true; // Nothing to delete
-    }
-
-    const keys = configSheet.getRange(2, 1, lastRow - 1, 1).getValues();
-    for (let i = 0; i < keys.length; i++) {
-      if (keys[i][0] === key) {
-        configSheet.deleteRow(i + 2); // +2 for 1-based index and header row
-        Logger.log('Deleted setting from config sheet: ' + key);
-        return true;
-      }
-    }
-
-    return true; // Key not found, consider it deleted
-  } catch (e) {
-    Logger.log('Error deleting from config sheet: ' + e.message);
-    return false;
-  }
-}
-
-/**
- * Reads a setting from PropertiesService (fallback)
- * Attempts: DocumentProperties -> UserProperties -> ScriptProperties
+ * Reads a single setting from Drive storage
  * @param {string} key - The setting key to read
  * @returns {string|null} The setting value or null if not found
  */
-function readFromProperties_(key) {
+function readFromDrive_(key) {
+  try {
+    const settings = readAllSettingsFromDrive_();
+    const value = settings[key];
+
+    if (value !== undefined && value !== null) {
+      // Return as string for compatibility with existing code that expects JSON strings
+      return typeof value === 'string' ? value : JSON.stringify(value);
+    }
+
+    return null;
+  } catch (e) {
+    Logger.log('Error reading setting from Drive: ' + e.message);
+    return null;
+  }
+}
+
+/**
+ * Writes a single setting to Drive storage
+ * @param {string} key - The setting key
+ * @param {string} value - The setting value (JSON string)
+ * @returns {boolean} True if successful
+ */
+function writeToDrive_(key, value) {
+  try {
+    const settings = readAllSettingsFromDrive_();
+    settings[key] = value;
+    return writeAllSettingsToDrive_(settings);
+  } catch (e) {
+    Logger.log('Error writing setting to Drive: ' + e.message);
+    return false;
+  }
+}
+
+/**
+ * Deletes a single setting from Drive storage
+ * @param {string} key - The setting key to delete
+ * @returns {boolean} True if successful
+ */
+function deleteFromDrive_(key) {
+  try {
+    const settings = readAllSettingsFromDrive_();
+    if (key in settings) {
+      delete settings[key];
+      return writeAllSettingsToDrive_(settings);
+    }
+    return true; // Key didn't exist, consider it deleted
+  } catch (e) {
+    Logger.log('Error deleting setting from Drive: ' + e.message);
+    return false;
+  }
+}
+
+// ============================================================================
+// LEGACY STORAGE (for migration only)
+// ============================================================================
+
+/**
+ * Reads a setting from PropertiesService (legacy, for migration)
+ * @param {string} key - The setting key to read
+ * @returns {string|null} The setting value or null if not found
+ */
+function readFromPropertiesLegacy_(key) {
   // Try DocumentProperties first
   try {
     const props = PropertiesService.getDocumentProperties();
@@ -1287,169 +1340,156 @@ function readFromProperties_(key) {
 }
 
 /**
- * Writes a setting to PropertiesService (fallback)
+ * Reads from hidden config sheet (legacy, for migration)
  * @param {string} key - The setting key
- * @param {string} value - The setting value
- * @returns {boolean} True if successfully written
+ * @returns {string|null} The value or null
  */
-function writeToProperties_(key, value) {
-  // Try DocumentProperties first
+function readFromConfigSheetLegacy_(key) {
   try {
-    const props = PropertiesService.getDocumentProperties();
-    props.setProperty(key, value);
-    Logger.log('Saved to DocumentProperties');
-    return true;
-  } catch (e) {
-    Logger.log('DocumentProperties write failed: ' + e.message);
-  }
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (!ss) return null;
 
-  // Try UserProperties
-  try {
-    const userProps = PropertiesService.getUserProperties();
-    userProps.setProperty(key, value);
-    Logger.log('Saved to UserProperties');
-    return true;
-  } catch (e) {
-    Logger.log('UserProperties write failed: ' + e.message);
-  }
+    const configSheet = ss.getSheetByName('__VisualGanttConfig__');
+    if (!configSheet) return null;
 
-  // Try ScriptProperties
-  try {
-    const scriptProps = PropertiesService.getScriptProperties();
-    scriptProps.setProperty(key, value);
-    Logger.log('Saved to ScriptProperties');
-    return true;
-  } catch (e) {
-    Logger.log('ScriptProperties write failed: ' + e.message);
-  }
+    const lastRow = configSheet.getLastRow();
+    if (lastRow <= 1) return null;
 
-  return false;
+    const data = configSheet.getRange(2, 1, lastRow - 1, 2).getValues();
+    for (let i = 0; i < data.length; i++) {
+      if (data[i][0] === key) {
+        return data[i][1] ? String(data[i][1]) : null;
+      }
+    }
+  } catch (e) {
+    Logger.log('Config sheet read failed: ' + e.message);
+  }
+  return null;
 }
 
-/**
- * Deletes a setting from all PropertiesService stores
- * @param {string} key - The setting key to delete
- */
-function deleteFromProperties_(key) {
-  try {
-    PropertiesService.getDocumentProperties().deleteProperty(key);
-  } catch (e) {
-    Logger.log('DocumentProperties delete failed: ' + e.message);
-  }
-
-  try {
-    PropertiesService.getUserProperties().deleteProperty(key);
-  } catch (e) {
-    Logger.log('UserProperties delete failed: ' + e.message);
-  }
-
-  try {
-    PropertiesService.getScriptProperties().deleteProperty(key);
-  } catch (e) {
-    Logger.log('ScriptProperties delete failed: ' + e.message);
-  }
-}
+// ============================================================================
+// UNIFIED STORAGE API (uses Google Drive)
+// ============================================================================
 
 /**
- * Reads a setting value using multiple storage backends
- * Priority: Hidden Config Sheet -> PropertiesService
+ * Reads a setting value from storage
+ * Primary: Google Drive, with automatic migration from legacy storage
  * @param {string} key - The setting key to read
  * @returns {string|null} The setting value or null if not found
  */
 function readSetting_(key) {
-  // Try hidden config sheet first (works with spreadsheets.currentonly scope)
-  const sheetValue = readFromConfigSheet_(key);
-  if (sheetValue !== null) {
-    Logger.log('Read setting from config sheet: ' + key);
-    return sheetValue;
+  // Try Google Drive first
+  let value = readFromDrive_(key);
+
+  if (value !== null) {
+    Logger.log('Read setting from Drive: ' + key);
+    return value;
   }
 
-  // Fall back to PropertiesService
-  const propsValue = readFromProperties_(key);
-  if (propsValue !== null) {
-    Logger.log('Read setting from PropertiesService: ' + key);
-    // Migrate to config sheet for future reads
+  // Try legacy storage locations and migrate if found
+  // First try hidden config sheet
+  value = readFromConfigSheetLegacy_(key);
+  if (value !== null) {
+    Logger.log('Found setting in legacy config sheet, migrating: ' + key);
     try {
-      writeToConfigSheet_(key, propsValue);
-      Logger.log('Migrated setting to config sheet: ' + key);
+      writeToDrive_(key, value);
     } catch (e) {
-      Logger.log('Migration to config sheet failed: ' + e.message);
+      Logger.log('Migration to Drive failed: ' + e.message);
     }
-    return propsValue;
+    return value;
+  }
+
+  // Then try PropertiesService
+  value = readFromPropertiesLegacy_(key);
+  if (value !== null) {
+    Logger.log('Found setting in legacy PropertiesService, migrating: ' + key);
+    try {
+      writeToDrive_(key, value);
+    } catch (e) {
+      Logger.log('Migration to Drive failed: ' + e.message);
+    }
+    return value;
   }
 
   return null;
 }
 
 /**
- * Writes a setting value using multiple storage backends
- * Attempts: Hidden Config Sheet -> PropertiesService
+ * Writes a setting value to storage (Google Drive)
  * @param {string} key - The setting key
  * @param {string} value - The setting value (JSON string)
  */
 function writeSetting_(key, value) {
-  let saved = false;
-
-  // Try hidden config sheet first (works with spreadsheets.currentonly scope)
-  if (writeToConfigSheet_(key, value)) {
-    saved = true;
-    Logger.log('Successfully saved setting to config sheet: ' + key);
+  if (writeToDrive_(key, value)) {
+    Logger.log('Successfully saved setting to Drive: ' + key);
+    return;
   }
 
-  // Also try to save to PropertiesService as backup (may fail in some environments)
-  if (!saved) {
-    if (writeToProperties_(key, value)) {
-      saved = true;
-      Logger.log('Successfully saved setting to PropertiesService: ' + key);
-    }
-  }
-
-  if (!saved) {
-    throw new Error(
-      'Unable to save settings. This may be caused by permission restrictions.\n\n' +
-      'Please try:\n' +
-      '1. Go to Extensions > Visual Gantt > Authorization > Request Authorization\n' +
-      '2. Follow the prompts to grant access\n' +
-      '3. Try saving again\n\n' +
-      'If the problem persists, your organization may have restrictions on add-on permissions.'
-    );
-  }
+  throw new Error(
+    'Unable to save settings to Google Drive.\n\n' +
+    'Please try:\n' +
+    '1. Go to Extensions > Visual Gantt > Authorization > Request Authorization\n' +
+    '2. Follow the prompts to grant Google Drive access\n' +
+    '3. Try saving again\n\n' +
+    'If the problem persists, check that you have permission to create files in Google Drive.'
+  );
 }
 
 /**
- * Deletes a setting from all storage backends
+ * Deletes a setting from storage
  * @param {string} key - The setting key to delete
  */
 function deleteSetting_(key) {
-  // Delete from config sheet
-  deleteFromConfigSheet_(key);
-
-  // Delete from PropertiesService
-  deleteFromProperties_(key);
-
-  Logger.log('Deleted setting from all stores: ' + key);
+  deleteFromDrive_(key);
+  Logger.log('Deleted setting: ' + key);
 }
 
+// ============================================================================
+// MIGRATION & DIAGNOSTICS
+// ============================================================================
+
 /**
- * Migrates settings from PropertiesService to hidden config sheet
+ * Migrates all settings from legacy storage to Google Drive
  * Call this to move existing settings to the new storage mechanism
  */
-function migrateSettingsToConfigSheet() {
+function migrateSettingsToDrive() {
   const keysToMigrate = [CONFIG_KEY, JIRA_CONFIG_KEY, SMARTSHEET_CONFIG_KEY];
   let migrated = 0;
+  const results = [];
 
   for (const key of keysToMigrate) {
-    const value = readFromProperties_(key);
+    // Check if already in Drive
+    const driveValue = readFromDrive_(key);
+    if (driveValue !== null) {
+      results.push({ key: key, status: 'already in Drive' });
+      continue;
+    }
+
+    // Try config sheet first
+    let value = readFromConfigSheetLegacy_(key);
+    let source = 'config sheet';
+
+    // Then try PropertiesService
+    if (value === null) {
+      value = readFromPropertiesLegacy_(key);
+      source = 'PropertiesService';
+    }
+
     if (value !== null) {
-      if (writeToConfigSheet_(key, value)) {
-        Logger.log('Migrated setting: ' + key);
+      if (writeToDrive_(key, value)) {
+        Logger.log('Migrated setting from ' + source + ': ' + key);
+        results.push({ key: key, status: 'migrated from ' + source });
         migrated++;
+      } else {
+        results.push({ key: key, status: 'migration failed' });
       }
+    } else {
+      results.push({ key: key, status: 'not found in legacy storage' });
     }
   }
 
   Logger.log('Migration complete. Migrated ' + migrated + ' settings.');
-  return { migrated: migrated, total: keysToMigrate.length };
+  return { migrated: migrated, total: keysToMigrate.length, results: results };
 }
 
 /**
@@ -1460,24 +1500,31 @@ function diagnoseStorageCapabilities() {
   const testKey = '__visualGantt_storage_test__';
   const testValue = 'test_' + Date.now();
   const results = {
-    configSheet: { read: false, write: false, delete: false, error: null },
+    googleDrive: { read: false, write: false, delete: false, error: null, fileId: null, folderName: null },
     documentProperties: { read: false, write: false, delete: false, error: null },
     userProperties: { read: false, write: false, delete: false, error: null },
     scriptProperties: { read: false, write: false, delete: false, error: null }
   };
 
-  // Test Config Sheet
+  // Test Google Drive
   try {
-    if (writeToConfigSheet_(testKey, testValue)) {
-      results.configSheet.write = true;
-      const readValue = readFromConfigSheet_(testKey);
-      results.configSheet.read = (readValue === testValue);
-      if (deleteFromConfigSheet_(testKey)) {
-        results.configSheet.delete = true;
+    const folder = getOrCreateConfigFolder_();
+    results.googleDrive.folderName = folder.getName();
+
+    if (writeToDrive_(testKey, testValue)) {
+      results.googleDrive.write = true;
+      const readValue = readFromDrive_(testKey);
+      results.googleDrive.read = (readValue === testValue);
+
+      const file = getOrCreateConfigFile_();
+      results.googleDrive.fileId = file.getId();
+
+      if (deleteFromDrive_(testKey)) {
+        results.googleDrive.delete = true;
       }
     }
   } catch (e) {
-    results.configSheet.error = e.message;
+    results.googleDrive.error = e.message;
   }
 
   // Test DocumentProperties
@@ -1530,58 +1577,83 @@ function showStorageDiagnostics() {
 
   let html = '<html><head><style>';
   html += 'body { font-family: Arial, sans-serif; padding: 20px; }';
-  html += '.success { color: green; }';
+  html += '.success { color: green; font-weight: bold; }';
   html += '.failure { color: red; }';
+  html += '.primary { background-color: #e8f5e9; }';
   html += 'table { border-collapse: collapse; width: 100%; }';
   html += 'th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }';
   html += 'th { background-color: #4285f4; color: white; }';
+  html += '.info { background-color: #e3f2fd; padding: 10px; border-radius: 4px; margin-bottom: 15px; }';
   html += '</style></head><body>';
   html += '<h2>Storage Diagnostics</h2>';
-  html += '<table><tr><th>Storage Method</th><th>Write</th><th>Read</th><th>Delete</th><th>Error</th></tr>';
+
+  // Show Drive file location
+  if (results.googleDrive.folderName) {
+    html += '<div class="info">';
+    html += '<strong>Settings Location:</strong> Google Drive > ' + results.googleDrive.folderName + ' > config.json';
+    if (results.googleDrive.fileId) {
+      html += '<br><small>File ID: ' + results.googleDrive.fileId + '</small>';
+    }
+    html += '</div>';
+  }
+
+  html += '<table><tr><th>Storage Method</th><th>Write</th><th>Read</th><th>Delete</th><th>Status</th></tr>';
+
+  const methodLabels = {
+    googleDrive: 'Google Drive (Primary)',
+    documentProperties: 'Document Properties',
+    userProperties: 'User Properties',
+    scriptProperties: 'Script Properties'
+  };
 
   for (const [method, status] of Object.entries(results)) {
-    const formatMethod = method.replace(/([A-Z])/g, ' $1').trim();
-    html += '<tr>';
-    html += '<td>' + formatMethod + '</td>';
+    const isPrimary = method === 'googleDrive';
+    const label = methodLabels[method] || method;
+    html += '<tr class="' + (isPrimary ? 'primary' : '') + '">';
+    html += '<td>' + label + '</td>';
     html += '<td class="' + (status.write ? 'success' : 'failure') + '">' + (status.write ? '✓' : '✗') + '</td>';
     html += '<td class="' + (status.read ? 'success' : 'failure') + '">' + (status.read ? '✓' : '✗') + '</td>';
     html += '<td class="' + (status.delete ? 'success' : 'failure') + '">' + (status.delete ? '✓' : '✗') + '</td>';
-    html += '<td>' + (status.error || '-') + '</td>';
+    html += '<td>' + (status.error || (status.write ? 'OK' : 'Failed')) + '</td>';
     html += '</tr>';
   }
 
   html += '</table>';
-  html += '<p style="margin-top: 20px;"><strong>Recommended:</strong> Config Sheet storage is the primary method and works with the spreadsheets.currentonly scope.</p>';
+  html += '<p style="margin-top: 20px;"><strong>Note:</strong> Visual Gantt now uses Google Drive for settings storage. ';
+  html += 'Your settings are saved in a "Visual Gantt Settings" folder in your Drive.</p>';
   html += '</body></html>';
 
   const output = HtmlService.createHtmlOutput(html)
-    .setWidth(600)
-    .setHeight(400)
+    .setWidth(650)
+    .setHeight(450)
     .setTitle('Storage Diagnostics');
 
   SpreadsheetApp.getUi().showModalDialog(output, 'Storage Diagnostics');
 }
 
 /**
- * Shows a dialog to migrate settings from PropertiesService to config sheet
+ * Shows a dialog to migrate settings from legacy storage to Google Drive
  */
 function showMigrationDialog() {
   const ui = SpreadsheetApp.getUi();
   const response = ui.alert(
-    'Migrate Settings',
-    'This will migrate any existing settings from PropertiesService to the hidden config sheet.\n\n' +
-    'This is useful if you are experiencing PERMISSION_DENIED errors with PropertiesService.\n\n' +
+    'Migrate Settings to Google Drive',
+    'This will migrate any existing settings from legacy storage (PropertiesService, hidden sheets) to Google Drive.\n\n' +
+    'Your settings will be stored in: Google Drive > Visual Gantt Settings > config.json\n\n' +
+    'This resolves PERMISSION_DENIED errors in Google Workspace environments.\n\n' +
     'Do you want to proceed?',
     ui.ButtonSet.YES_NO
   );
 
   if (response === ui.Button.YES) {
     try {
-      const result = migrateSettingsToConfigSheet();
+      const result = migrateSettingsToDrive();
+      let details = result.results.map(r => '• ' + r.key + ': ' + r.status).join('\n');
       ui.alert(
         'Migration Complete',
-        'Successfully migrated ' + result.migrated + ' of ' + result.total + ' settings to the config sheet.\n\n' +
-        'Your settings should now work correctly.',
+        'Migrated ' + result.migrated + ' of ' + result.total + ' settings to Google Drive.\n\n' +
+        'Details:\n' + details + '\n\n' +
+        'Your settings are now stored in Google Drive.',
         ui.ButtonSet.OK
       );
     } catch (e) {
@@ -1591,6 +1663,24 @@ function showMigrationDialog() {
         ui.ButtonSet.OK
       );
     }
+  }
+}
+
+/**
+ * Opens the settings folder in Google Drive
+ */
+function openSettingsFolder() {
+  try {
+    const folder = getOrCreateConfigFolder_();
+    const url = folder.getUrl();
+
+    const html = '<html><body><script>window.open("' + url + '", "_blank");google.script.host.close();</script></body></html>';
+    const output = HtmlService.createHtmlOutput(html)
+      .setWidth(1)
+      .setHeight(1);
+    SpreadsheetApp.getUi().showModalDialog(output, 'Opening...');
+  } catch (e) {
+    SpreadsheetApp.getUi().alert('Error', 'Could not open settings folder: ' + e.message, SpreadsheetApp.getUi().ButtonSet.OK);
   }
 }
 
