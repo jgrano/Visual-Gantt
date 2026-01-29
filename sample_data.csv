@@ -1,4 +1,4 @@
-Task ID,Task Name,Current Start,Current End,Duration (Days),Owner,% Complete,Priority,Jira Ticket,Parent Task,Dependencies,Task Type,Swimlane/Category,Original Start,Original End,Slip
+Task ID,Task Name,Start Date,End Date,Duration (Days),Owner,% Complete,Priority,Jira Ticket,Parent Task,Dependencies,Task Type,Swimlane/Category,Original Start,Original End,Slip
 MECH-001,Mechanical Design Phase,2024-01-01,2024-02-15,,John Smith,75,High,https://jira.example.com/MECH-001,,,Task,Mechanical,,,
 MECH-002,Enclosure CAD Design,2024-01-01,2024-01-14,,John Smith,100,High,https://jira.example.com/MECH-002,MECH-001,,Task,Mechanical,,,
 MECH-003,Thermal Analysis,2024-01-08,2024-01-22,,Sarah Johnson,80,High,https://jira.example.com/MECH-003,MECH-001,MECH-002,Task,Mechanical,,,

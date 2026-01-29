@@ -19,8 +19,8 @@ const TIMELINE_SHEET_NAME = 'Timeline View';
 const COLUMN_HEADERS = [
   'Task ID',
   'Task Name',
-  'Current Start',
-  'Current End',
+  'Start Date',
+  'End Date',
   'Duration (Days)',
   'Owner',
   '% Complete',
@@ -40,8 +40,8 @@ const COLUMN_HEADERS = [
 const COL = {
   TASK_ID: 0,
   TASK_NAME: 1,
-  CURRENT_START: 2,
-  CURRENT_END: 3,
+  START_DATE: 2,
+  END_DATE: 3,
   DURATION: 4,
   OWNER: 5,
   PERCENT_COMPLETE: 6,
@@ -771,7 +771,7 @@ function setupDataSheet() {
     .build();
   dataSheet.getRange('G2:G1000').setDataValidation(percentRule);
 
-  // Format date columns (Current Start, Current End, Original Start, Original End)
+  // Format date columns (Start Date, End Date, Original Start, Original End)
   dataSheet.getRange('C2:D1000').setNumberFormat('yyyy-mm-dd');
   dataSheet.getRange('N2:O1000').setNumberFormat('yyyy-mm-dd');
 
@@ -2629,8 +2629,8 @@ function detectConflicts(jiraRows, sheetDataMap) {
         const diffs = [];
 
         // Compare dates
-        const sheetStartDate = parseDate(sheetRow[COL.CURRENT_START]);
-        const sheetEndDate = parseDate(sheetRow[COL.CURRENT_END]);
+        const sheetStartDate = parseDate(sheetRow[COL.START_DATE]);
+        const sheetEndDate = parseDate(sheetRow[COL.END_DATE]);
 
         if (jiraRow.startDate && sheetStartDate &&
             jiraRow.startDate.getTime() !== sheetStartDate.getTime()) {
@@ -2996,14 +2996,14 @@ function pushRowsToJira(rows) {
       };
 
       // Due date (End Date)
-      const endDate = parseDate(row.data[COL.CURRENT_END]);
+      const endDate = parseDate(row.data[COL.END_DATE]);
       if (endDate) {
         updatePayload.fields.duedate = formatDateForJira(endDate);
       }
 
       // Start date (custom field)
       if (config.startDateField) {
-        const startDate = parseDate(row.data[COL.CURRENT_START]);
+        const startDate = parseDate(row.data[COL.START_DATE]);
         if (startDate) {
           updatePayload.fields[config.startDateField] = formatDateForJira(startDate);
         }
@@ -3705,8 +3705,8 @@ function detectSmartsheetConflicts(smartsheetRows, sheetDataMap) {
         const diffs = [];
 
         // Compare dates
-        const sheetStartDate = parseDate(sheetRow[COL.CURRENT_START]);
-        const sheetEndDate = parseDate(sheetRow[COL.CURRENT_END]);
+        const sheetStartDate = parseDate(sheetRow[COL.START_DATE]);
+        const sheetEndDate = parseDate(sheetRow[COL.END_DATE]);
 
         if (ssRow.startDate && sheetStartDate &&
             ssRow.startDate.getTime() !== sheetStartDate.getTime()) {
@@ -4096,7 +4096,7 @@ function pushRowsToSmartsheet(rows) {
 
       // Start Date
       if (mapping.colStartDate) {
-        const startDate = parseDate(row.data[COL.CURRENT_START]);
+        const startDate = parseDate(row.data[COL.START_DATE]);
         if (startDate) {
           cells.push({
             columnId: Number(mapping.colStartDate),
@@ -4107,7 +4107,7 @@ function pushRowsToSmartsheet(rows) {
 
       // End Date
       if (mapping.colEndDate) {
-        const endDate = parseDate(row.data[COL.CURRENT_END]);
+        const endDate = parseDate(row.data[COL.END_DATE]);
         if (endDate) {
           cells.push({
             columnId: Number(mapping.colEndDate),
