@@ -458,7 +458,10 @@ function onOpen(e) {
   // Create Authorization submenu for troubleshooting
   const authMenu = ui.createMenu('Authorization')
     .addItem('Request Authorization', 'requestAuthorization')
-    .addItem('Check Authorization Status', 'showAuthorizationDiagnostics');
+    .addItem('Check Authorization Status', 'showAuthorizationDiagnostics')
+    .addSeparator()
+    .addItem('Storage Diagnostics', 'showStorageDiagnostics')
+    .addItem('Migrate Settings', 'showMigrationDialog');
 
   ui.createMenu('Visual Gantt')
     .addItem('Generate Timeline', 'generateTimeline')
@@ -1093,17 +1096,168 @@ function detectCircularDependencies(tasks, taskMap) {
 }
 
 // ============================================================================
-// PROPERTIES SERVICE STORAGE FUNCTIONS
+// STORAGE FUNCTIONS (HIDDEN SHEET + PROPERTIES SERVICE FALLBACK)
 // ============================================================================
 
+// Hidden sheet name for storing configuration
+const CONFIG_SHEET_NAME = '__VisualGanttConfig__';
+
 /**
- * Reads a setting value from Properties Service
+ * Gets or creates the hidden configuration sheet
+ * @returns {GoogleAppsScript.Spreadsheet.Sheet|null} The config sheet or null if unavailable
+ */
+function getConfigSheet_() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (!ss) {
+      Logger.log('No active spreadsheet available');
+      return null;
+    }
+
+    let configSheet = ss.getSheetByName(CONFIG_SHEET_NAME);
+
+    if (!configSheet) {
+      // Create the config sheet
+      configSheet = ss.insertSheet(CONFIG_SHEET_NAME);
+
+      // Set up headers
+      configSheet.getRange('A1').setValue('__key__');
+      configSheet.getRange('B1').setValue('__value__');
+
+      // Hide the sheet immediately
+      configSheet.hideSheet();
+
+      Logger.log('Created and hid config sheet: ' + CONFIG_SHEET_NAME);
+    }
+
+    return configSheet;
+  } catch (e) {
+    Logger.log('Error getting/creating config sheet: ' + e.message);
+    return null;
+  }
+}
+
+/**
+ * Reads a setting value from the hidden config sheet
+ * @param {string} key - The setting key to read
+ * @returns {string|null} The setting value or null if not found
+ */
+function readFromConfigSheet_(key) {
+  try {
+    const configSheet = getConfigSheet_();
+    if (!configSheet) {
+      return null;
+    }
+
+    // Get all data from the sheet
+    const lastRow = configSheet.getLastRow();
+    if (lastRow <= 1) {
+      // Only header row exists
+      return null;
+    }
+
+    const data = configSheet.getRange(2, 1, lastRow - 1, 2).getValues();
+
+    for (let i = 0; i < data.length; i++) {
+      if (data[i][0] === key) {
+        const value = data[i][1];
+        return value ? String(value) : null;
+      }
+    }
+
+    return null;
+  } catch (e) {
+    Logger.log('Error reading from config sheet: ' + e.message);
+    return null;
+  }
+}
+
+/**
+ * Writes a setting value to the hidden config sheet
+ * @param {string} key - The setting key
+ * @param {string} value - The setting value
+ * @returns {boolean} True if successfully written
+ */
+function writeToConfigSheet_(key, value) {
+  try {
+    const configSheet = getConfigSheet_();
+    if (!configSheet) {
+      return false;
+    }
+
+    // Find existing row with this key
+    const lastRow = configSheet.getLastRow();
+    let existingRow = -1;
+
+    if (lastRow > 1) {
+      const keys = configSheet.getRange(2, 1, lastRow - 1, 1).getValues();
+      for (let i = 0; i < keys.length; i++) {
+        if (keys[i][0] === key) {
+          existingRow = i + 2; // +2 for 1-based index and header row
+          break;
+        }
+      }
+    }
+
+    if (existingRow > 0) {
+      // Update existing row
+      configSheet.getRange(existingRow, 2).setValue(value);
+    } else {
+      // Add new row
+      const newRow = lastRow + 1;
+      configSheet.getRange(newRow, 1).setValue(key);
+      configSheet.getRange(newRow, 2).setValue(value);
+    }
+
+    Logger.log('Saved setting to config sheet: ' + key);
+    return true;
+  } catch (e) {
+    Logger.log('Error writing to config sheet: ' + e.message);
+    return false;
+  }
+}
+
+/**
+ * Deletes a setting from the hidden config sheet
+ * @param {string} key - The setting key to delete
+ * @returns {boolean} True if successfully deleted
+ */
+function deleteFromConfigSheet_(key) {
+  try {
+    const configSheet = getConfigSheet_();
+    if (!configSheet) {
+      return false;
+    }
+
+    const lastRow = configSheet.getLastRow();
+    if (lastRow <= 1) {
+      return true; // Nothing to delete
+    }
+
+    const keys = configSheet.getRange(2, 1, lastRow - 1, 1).getValues();
+    for (let i = 0; i < keys.length; i++) {
+      if (keys[i][0] === key) {
+        configSheet.deleteRow(i + 2); // +2 for 1-based index and header row
+        Logger.log('Deleted setting from config sheet: ' + key);
+        return true;
+      }
+    }
+
+    return true; // Key not found, consider it deleted
+  } catch (e) {
+    Logger.log('Error deleting from config sheet: ' + e.message);
+    return false;
+  }
+}
+
+/**
+ * Reads a setting from PropertiesService (fallback)
  * Attempts: DocumentProperties -> UserProperties -> ScriptProperties
  * @param {string} key - The setting key to read
  * @returns {string|null} The setting value or null if not found
  */
-function readSetting_(key) {
-  // Try DocumentProperties first (per-document settings, requires file scope)
+function readFromProperties_(key) {
+  // Try DocumentProperties first
   try {
     const props = PropertiesService.getDocumentProperties();
     const value = props.getProperty(key);
@@ -1112,7 +1266,7 @@ function readSetting_(key) {
     Logger.log('DocumentProperties read failed: ' + e.message);
   }
 
-  // Try UserProperties (per-user settings, always available)
+  // Try UserProperties
   try {
     const userProps = PropertiesService.getUserProperties();
     const value = userProps.getProperty(key);
@@ -1121,7 +1275,7 @@ function readSetting_(key) {
     Logger.log('UserProperties read failed: ' + e.message);
   }
 
-  // Try ScriptProperties as final fallback (shared across all users)
+  // Try ScriptProperties
   try {
     const scriptProps = PropertiesService.getScriptProperties();
     const value = scriptProps.getProperty(key);
@@ -1133,66 +1287,50 @@ function readSetting_(key) {
 }
 
 /**
- * Writes a setting value to Properties Service
- * Attempts: DocumentProperties -> UserProperties -> ScriptProperties
+ * Writes a setting to PropertiesService (fallback)
  * @param {string} key - The setting key
- * @param {string} value - The setting value (JSON string)
+ * @param {string} value - The setting value
+ * @returns {boolean} True if successfully written
  */
-function writeSetting_(key, value) {
-  let saved = false;
-
-  // Try DocumentProperties first (preferred for per-document settings)
+function writeToProperties_(key, value) {
+  // Try DocumentProperties first
   try {
     const props = PropertiesService.getDocumentProperties();
     props.setProperty(key, value);
-    saved = true;
     Logger.log('Saved to DocumentProperties');
+    return true;
   } catch (e) {
-    Logger.log('DocumentProperties write failed (may need file scope authorization): ' + e.message);
+    Logger.log('DocumentProperties write failed: ' + e.message);
   }
 
-  // If DocumentProperties failed, try UserProperties
-  if (!saved) {
-    try {
-      const userProps = PropertiesService.getUserProperties();
-      userProps.setProperty(key, value);
-      saved = true;
-      Logger.log('Saved to UserProperties as fallback (settings will follow user, not document)');
-    } catch (e) {
-      Logger.log('UserProperties write failed: ' + e.message);
-    }
+  // Try UserProperties
+  try {
+    const userProps = PropertiesService.getUserProperties();
+    userProps.setProperty(key, value);
+    Logger.log('Saved to UserProperties');
+    return true;
+  } catch (e) {
+    Logger.log('UserProperties write failed: ' + e.message);
   }
 
-  // If still not saved, try ScriptProperties as last resort
-  if (!saved) {
-    try {
-      const scriptProps = PropertiesService.getScriptProperties();
-      scriptProps.setProperty(key, value);
-      saved = true;
-      Logger.log('Saved to ScriptProperties as final fallback');
-    } catch (e) {
-      Logger.log('ScriptProperties write failed: ' + e.message);
-    }
+  // Try ScriptProperties
+  try {
+    const scriptProps = PropertiesService.getScriptProperties();
+    scriptProps.setProperty(key, value);
+    Logger.log('Saved to ScriptProperties');
+    return true;
+  } catch (e) {
+    Logger.log('ScriptProperties write failed: ' + e.message);
   }
 
-  if (!saved) {
-    throw new Error(
-      'Unable to save settings. This is usually caused by missing authorization.\n\n' +
-      'Please try:\n' +
-      '1. Go to Extensions > Visual Gantt > Authorization > Request Authorization\n' +
-      '2. Follow the prompts to grant access\n' +
-      '3. Try saving again\n\n' +
-      'If the problem persists, your organization may have restrictions on add-on permissions.'
-    );
-  }
+  return false;
 }
 
 /**
- * Deletes a setting from all Properties stores
+ * Deletes a setting from all PropertiesService stores
  * @param {string} key - The setting key to delete
  */
-function deleteSetting_(key) {
-  // Try to delete from all stores to ensure cleanup
+function deleteFromProperties_(key) {
   try {
     PropertiesService.getDocumentProperties().deleteProperty(key);
   } catch (e) {
@@ -1209,6 +1347,250 @@ function deleteSetting_(key) {
     PropertiesService.getScriptProperties().deleteProperty(key);
   } catch (e) {
     Logger.log('ScriptProperties delete failed: ' + e.message);
+  }
+}
+
+/**
+ * Reads a setting value using multiple storage backends
+ * Priority: Hidden Config Sheet -> PropertiesService
+ * @param {string} key - The setting key to read
+ * @returns {string|null} The setting value or null if not found
+ */
+function readSetting_(key) {
+  // Try hidden config sheet first (works with spreadsheets.currentonly scope)
+  const sheetValue = readFromConfigSheet_(key);
+  if (sheetValue !== null) {
+    Logger.log('Read setting from config sheet: ' + key);
+    return sheetValue;
+  }
+
+  // Fall back to PropertiesService
+  const propsValue = readFromProperties_(key);
+  if (propsValue !== null) {
+    Logger.log('Read setting from PropertiesService: ' + key);
+    // Migrate to config sheet for future reads
+    try {
+      writeToConfigSheet_(key, propsValue);
+      Logger.log('Migrated setting to config sheet: ' + key);
+    } catch (e) {
+      Logger.log('Migration to config sheet failed: ' + e.message);
+    }
+    return propsValue;
+  }
+
+  return null;
+}
+
+/**
+ * Writes a setting value using multiple storage backends
+ * Attempts: Hidden Config Sheet -> PropertiesService
+ * @param {string} key - The setting key
+ * @param {string} value - The setting value (JSON string)
+ */
+function writeSetting_(key, value) {
+  let saved = false;
+
+  // Try hidden config sheet first (works with spreadsheets.currentonly scope)
+  if (writeToConfigSheet_(key, value)) {
+    saved = true;
+    Logger.log('Successfully saved setting to config sheet: ' + key);
+  }
+
+  // Also try to save to PropertiesService as backup (may fail in some environments)
+  if (!saved) {
+    if (writeToProperties_(key, value)) {
+      saved = true;
+      Logger.log('Successfully saved setting to PropertiesService: ' + key);
+    }
+  }
+
+  if (!saved) {
+    throw new Error(
+      'Unable to save settings. This may be caused by permission restrictions.\n\n' +
+      'Please try:\n' +
+      '1. Go to Extensions > Visual Gantt > Authorization > Request Authorization\n' +
+      '2. Follow the prompts to grant access\n' +
+      '3. Try saving again\n\n' +
+      'If the problem persists, your organization may have restrictions on add-on permissions.'
+    );
+  }
+}
+
+/**
+ * Deletes a setting from all storage backends
+ * @param {string} key - The setting key to delete
+ */
+function deleteSetting_(key) {
+  // Delete from config sheet
+  deleteFromConfigSheet_(key);
+
+  // Delete from PropertiesService
+  deleteFromProperties_(key);
+
+  Logger.log('Deleted setting from all stores: ' + key);
+}
+
+/**
+ * Migrates settings from PropertiesService to hidden config sheet
+ * Call this to move existing settings to the new storage mechanism
+ */
+function migrateSettingsToConfigSheet() {
+  const keysToMigrate = [CONFIG_KEY, JIRA_CONFIG_KEY, SMARTSHEET_CONFIG_KEY];
+  let migrated = 0;
+
+  for (const key of keysToMigrate) {
+    const value = readFromProperties_(key);
+    if (value !== null) {
+      if (writeToConfigSheet_(key, value)) {
+        Logger.log('Migrated setting: ' + key);
+        migrated++;
+      }
+    }
+  }
+
+  Logger.log('Migration complete. Migrated ' + migrated + ' settings.');
+  return { migrated: migrated, total: keysToMigrate.length };
+}
+
+/**
+ * Diagnostic function to check storage capabilities
+ * @returns {Object} Object with status of each storage method
+ */
+function diagnoseStorageCapabilities() {
+  const testKey = '__visualGantt_storage_test__';
+  const testValue = 'test_' + Date.now();
+  const results = {
+    configSheet: { read: false, write: false, delete: false, error: null },
+    documentProperties: { read: false, write: false, delete: false, error: null },
+    userProperties: { read: false, write: false, delete: false, error: null },
+    scriptProperties: { read: false, write: false, delete: false, error: null }
+  };
+
+  // Test Config Sheet
+  try {
+    if (writeToConfigSheet_(testKey, testValue)) {
+      results.configSheet.write = true;
+      const readValue = readFromConfigSheet_(testKey);
+      results.configSheet.read = (readValue === testValue);
+      if (deleteFromConfigSheet_(testKey)) {
+        results.configSheet.delete = true;
+      }
+    }
+  } catch (e) {
+    results.configSheet.error = e.message;
+  }
+
+  // Test DocumentProperties
+  try {
+    const props = PropertiesService.getDocumentProperties();
+    props.setProperty(testKey, testValue);
+    results.documentProperties.write = true;
+    const readValue = props.getProperty(testKey);
+    results.documentProperties.read = (readValue === testValue);
+    props.deleteProperty(testKey);
+    results.documentProperties.delete = true;
+  } catch (e) {
+    results.documentProperties.error = e.message;
+  }
+
+  // Test UserProperties
+  try {
+    const props = PropertiesService.getUserProperties();
+    props.setProperty(testKey, testValue);
+    results.userProperties.write = true;
+    const readValue = props.getProperty(testKey);
+    results.userProperties.read = (readValue === testValue);
+    props.deleteProperty(testKey);
+    results.userProperties.delete = true;
+  } catch (e) {
+    results.userProperties.error = e.message;
+  }
+
+  // Test ScriptProperties
+  try {
+    const props = PropertiesService.getScriptProperties();
+    props.setProperty(testKey, testValue);
+    results.scriptProperties.write = true;
+    const readValue = props.getProperty(testKey);
+    results.scriptProperties.read = (readValue === testValue);
+    props.deleteProperty(testKey);
+    results.scriptProperties.delete = true;
+  } catch (e) {
+    results.scriptProperties.error = e.message;
+  }
+
+  return results;
+}
+
+/**
+ * Shows storage diagnostic results in a dialog
+ */
+function showStorageDiagnostics() {
+  const results = diagnoseStorageCapabilities();
+
+  let html = '<html><head><style>';
+  html += 'body { font-family: Arial, sans-serif; padding: 20px; }';
+  html += '.success { color: green; }';
+  html += '.failure { color: red; }';
+  html += 'table { border-collapse: collapse; width: 100%; }';
+  html += 'th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }';
+  html += 'th { background-color: #4285f4; color: white; }';
+  html += '</style></head><body>';
+  html += '<h2>Storage Diagnostics</h2>';
+  html += '<table><tr><th>Storage Method</th><th>Write</th><th>Read</th><th>Delete</th><th>Error</th></tr>';
+
+  for (const [method, status] of Object.entries(results)) {
+    const formatMethod = method.replace(/([A-Z])/g, ' $1').trim();
+    html += '<tr>';
+    html += '<td>' + formatMethod + '</td>';
+    html += '<td class="' + (status.write ? 'success' : 'failure') + '">' + (status.write ? '✓' : '✗') + '</td>';
+    html += '<td class="' + (status.read ? 'success' : 'failure') + '">' + (status.read ? '✓' : '✗') + '</td>';
+    html += '<td class="' + (status.delete ? 'success' : 'failure') + '">' + (status.delete ? '✓' : '✗') + '</td>';
+    html += '<td>' + (status.error || '-') + '</td>';
+    html += '</tr>';
+  }
+
+  html += '</table>';
+  html += '<p style="margin-top: 20px;"><strong>Recommended:</strong> Config Sheet storage is the primary method and works with the spreadsheets.currentonly scope.</p>';
+  html += '</body></html>';
+
+  const output = HtmlService.createHtmlOutput(html)
+    .setWidth(600)
+    .setHeight(400)
+    .setTitle('Storage Diagnostics');
+
+  SpreadsheetApp.getUi().showModalDialog(output, 'Storage Diagnostics');
+}
+
+/**
+ * Shows a dialog to migrate settings from PropertiesService to config sheet
+ */
+function showMigrationDialog() {
+  const ui = SpreadsheetApp.getUi();
+  const response = ui.alert(
+    'Migrate Settings',
+    'This will migrate any existing settings from PropertiesService to the hidden config sheet.\n\n' +
+    'This is useful if you are experiencing PERMISSION_DENIED errors with PropertiesService.\n\n' +
+    'Do you want to proceed?',
+    ui.ButtonSet.YES_NO
+  );
+
+  if (response === ui.Button.YES) {
+    try {
+      const result = migrateSettingsToConfigSheet();
+      ui.alert(
+        'Migration Complete',
+        'Successfully migrated ' + result.migrated + ' of ' + result.total + ' settings to the config sheet.\n\n' +
+        'Your settings should now work correctly.',
+        ui.ButtonSet.OK
+      );
+    } catch (e) {
+      ui.alert(
+        'Migration Failed',
+        'An error occurred during migration: ' + e.message,
+        ui.ButtonSet.OK
+      );
+    }
   }
 }
 
