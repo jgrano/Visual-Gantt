@@ -15,7 +15,6 @@ const JIRA_CONFIG_KEY = 'visualGanttJiraConfig';
 const SMARTSHEET_CONFIG_KEY = 'visualGanttSmartsheetConfig';
 const DATA_SHEET_NAME = 'Project Data';
 const TIMELINE_SHEET_NAME = 'Timeline View';
-const SETTINGS_SHEET_NAME = '_VisualGanttSettings'; // Hidden sheet for storing settings
 
 const COLUMN_HEADERS = [
   'Task ID',
@@ -159,12 +158,15 @@ const SWIMLANE_COLORS = [
 ];
 
 // ============================================================================
-// HIDDEN SHEET STORAGE
+// PROPERTIES SERVICE STORAGE
 // ============================================================================
 
-// Note: All configuration is stored in a hidden sheet to avoid dependency on
-// external services like Firebase or PropertiesService which may not be
-// available in all organizational contexts.
+// Note: Configuration is stored using PropertiesService.getDocumentProperties()
+// which is the recommended approach for Google Apps Script add-ons. It:
+// - Requires no additional OAuth scopes
+// - Is tied to the document (each spreadsheet has its own settings)
+// - Is atomic and reliable
+// - Works in all organizational contexts
 
 // ============================================================================
 // MENU & TRIGGERS
@@ -631,76 +633,67 @@ function detectCircularDependencies(tasks, taskMap) {
 }
 
 // ============================================================================
-// SHEET-BASED SETTINGS STORAGE
+// PROPERTIES SERVICE STORAGE FUNCTIONS
 // ============================================================================
 
 /**
- * Gets or creates the hidden settings sheet
- * This provides an alternative to PropertiesService which can have permission issues
- */
-function getSettingsSheet_() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName(SETTINGS_SHEET_NAME);
-
-  if (!sheet) {
-    // Create the settings sheet
-    sheet = ss.insertSheet(SETTINGS_SHEET_NAME);
-    // Set up header row
-    sheet.getRange(1, 1, 1, 2).setValues([['Key', 'Value']]);
-    // Hide the sheet from users
-    sheet.hideSheet();
-  }
-
-  return sheet;
-}
-
-/**
- * Reads a setting value from the settings sheet
+ * Reads a setting value from Document Properties
+ * Document Properties are tied to the spreadsheet and work in all contexts
  * @param {string} key - The setting key to read
  * @returns {string|null} The setting value or null if not found
  */
-function readSettingFromSheet_(key) {
+function readSetting_(key) {
   try {
-    const sheet = getSettingsSheet_();
-    const data = sheet.getDataRange().getValues();
-
-    for (let i = 1; i < data.length; i++) { // Skip header row
-      if (data[i][0] === key) {
-        return data[i][1] || null;
-      }
-    }
-    return null;
+    const props = PropertiesService.getDocumentProperties();
+    const value = props.getProperty(key);
+    return value || null;
   } catch (e) {
-    Logger.log('Error reading setting from sheet: ' + e.message);
-    return null;
+    Logger.log('Error reading setting: ' + e.message);
+    // If DocumentProperties fails, try ScriptProperties as fallback
+    try {
+      const scriptProps = PropertiesService.getScriptProperties();
+      const value = scriptProps.getProperty(key);
+      return value || null;
+    } catch (e2) {
+      Logger.log('Fallback to ScriptProperties also failed: ' + e2.message);
+      return null;
+    }
   }
 }
 
 /**
- * Writes a setting value to the settings sheet
+ * Writes a setting value to Document Properties
  * @param {string} key - The setting key
  * @param {string} value - The setting value (JSON string)
  */
-function writeSettingToSheet_(key, value) {
+function writeSetting_(key, value) {
   try {
-    const sheet = getSettingsSheet_();
-    const data = sheet.getDataRange().getValues();
-
-    // Look for existing key
-    for (let i = 1; i < data.length; i++) {
-      if (data[i][0] === key) {
-        // Update existing row
-        sheet.getRange(i + 1, 2).setValue(value);
-        return;
-      }
-    }
-
-    // Key not found, append new row
-    const lastRow = sheet.getLastRow();
-    sheet.getRange(lastRow + 1, 1, 1, 2).setValues([[key, value]]);
+    const props = PropertiesService.getDocumentProperties();
+    props.setProperty(key, value);
   } catch (e) {
-    Logger.log('Error writing setting to sheet: ' + e.message);
-    throw new Error('Unable to save settings to spreadsheet: ' + e.message);
+    Logger.log('Error writing to DocumentProperties: ' + e.message);
+    // If DocumentProperties fails, try ScriptProperties as fallback
+    try {
+      const scriptProps = PropertiesService.getScriptProperties();
+      scriptProps.setProperty(key, value);
+      Logger.log('Successfully wrote to ScriptProperties as fallback');
+    } catch (e2) {
+      Logger.log('Fallback to ScriptProperties also failed: ' + e2.message);
+      throw new Error('Unable to save settings. Please ensure the add-on has been authorized for this document.');
+    }
+  }
+}
+
+/**
+ * Deletes a setting from Document Properties
+ * @param {string} key - The setting key to delete
+ */
+function deleteSetting_(key) {
+  try {
+    const props = PropertiesService.getDocumentProperties();
+    props.deleteProperty(key);
+  } catch (e) {
+    Logger.log('Error deleting setting: ' + e.message);
   }
 }
 
@@ -710,11 +703,11 @@ function writeSettingToSheet_(key, value) {
 // ============================================================================
 
 /**
- * Gets the current configuration from hidden sheet storage
+ * Gets the current configuration from Document Properties
  */
 function getConfig() {
   try {
-    const savedConfig = readSettingFromSheet_(CONFIG_KEY);
+    const savedConfig = readSetting_(CONFIG_KEY);
     if (savedConfig) {
       try {
         return { ...DEFAULT_CONFIG, ...JSON.parse(savedConfig) };
@@ -724,22 +717,22 @@ function getConfig() {
       }
     }
   } catch (e) {
-    Logger.log('Error reading config from sheet: ' + e.message);
+    Logger.log('Error reading config: ' + e.message);
   }
 
   return { ...DEFAULT_CONFIG };
 }
 
 /**
- * Saves configuration to hidden sheet storage
+ * Saves configuration to Document Properties
  */
 function saveConfig(config) {
   const configJson = JSON.stringify(config);
 
   try {
-    writeSettingToSheet_(CONFIG_KEY, configJson);
+    writeSetting_(CONFIG_KEY, configJson);
   } catch (e) {
-    Logger.log('Error saving config to sheet: ' + e.message);
+    Logger.log('Error saving config: ' + e.message);
     throw new Error('Unable to save settings: ' + e.message);
   }
 }
@@ -1181,11 +1174,11 @@ function showAbout() {
 // ============================================================================
 
 /**
- * Gets Jira configuration from hidden sheet storage
+ * Gets Jira configuration from Document Properties
  */
 function getJiraConfig() {
   try {
-    const savedConfig = readSettingFromSheet_(JIRA_CONFIG_KEY);
+    const savedConfig = readSetting_(JIRA_CONFIG_KEY);
     if (savedConfig) {
       try {
         return { ...DEFAULT_JIRA_CONFIG, ...JSON.parse(savedConfig) };
@@ -1195,22 +1188,22 @@ function getJiraConfig() {
       }
     }
   } catch (e) {
-    Logger.log('Error reading Jira config from sheet: ' + e.message);
+    Logger.log('Error reading Jira config: ' + e.message);
   }
 
   return { ...DEFAULT_JIRA_CONFIG };
 }
 
 /**
- * Saves Jira configuration to hidden sheet storage
+ * Saves Jira configuration to Document Properties
  */
 function saveJiraConfig(config) {
   const configJson = JSON.stringify(config);
 
   try {
-    writeSettingToSheet_(JIRA_CONFIG_KEY, configJson);
+    writeSetting_(JIRA_CONFIG_KEY, configJson);
   } catch (e) {
-    Logger.log('Error saving Jira config to sheet: ' + e.message);
+    Logger.log('Error saving Jira config: ' + e.message);
     throw new Error('Unable to save Jira settings: ' + e.message);
   }
 }
@@ -2118,7 +2111,7 @@ function include(filename) {
 // ============================================================================
 
 /**
- * Gets Smartsheet configuration from hidden sheet storage
+ * Gets Smartsheet configuration from Document Properties
  */
 function getSmartsheetConfig() {
   // Helper function to parse and merge config
@@ -2132,7 +2125,7 @@ function getSmartsheetConfig() {
   }
 
   try {
-    const savedConfig = readSettingFromSheet_(SMARTSHEET_CONFIG_KEY);
+    const savedConfig = readSetting_(SMARTSHEET_CONFIG_KEY);
     if (savedConfig) {
       try {
         return parseConfig(savedConfig);
@@ -2142,22 +2135,22 @@ function getSmartsheetConfig() {
       }
     }
   } catch (e) {
-    Logger.log('Error reading Smartsheet config from sheet: ' + e.message);
+    Logger.log('Error reading Smartsheet config: ' + e.message);
   }
 
   return { ...DEFAULT_SMARTSHEET_CONFIG };
 }
 
 /**
- * Saves Smartsheet configuration to hidden sheet storage
+ * Saves Smartsheet configuration to Document Properties
  */
 function saveSmartsheetConfig(config) {
   const configJson = JSON.stringify(config);
 
   try {
-    writeSettingToSheet_(SMARTSHEET_CONFIG_KEY, configJson);
+    writeSetting_(SMARTSHEET_CONFIG_KEY, configJson);
   } catch (e) {
-    Logger.log('Error saving Smartsheet config to sheet: ' + e.message);
+    Logger.log('Error saving Smartsheet config: ' + e.message);
     throw new Error('Unable to save Smartsheet settings: ' + e.message);
   }
 }
