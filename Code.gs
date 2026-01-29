@@ -1112,23 +1112,91 @@ function detectCircularDependencies(tasks, taskMap) {
 const DRIVE_FOLDER_NAME = 'Visual Gantt Settings';
 const DRIVE_CONFIG_FILENAME = 'config.json';
 const CACHE_KEY_FILE_ID = 'visualGantt_configFileId';
+const USER_PROP_FOLDER_ID = 'visualGantt_folderId';
+const USER_PROP_FILE_ID = 'visualGantt_fileId';
+
+/**
+ * Gets a stored ID from UserProperties
+ * @param {string} key - The property key
+ * @returns {string|null} The stored ID or null
+ */
+function getStoredId_(key) {
+  try {
+    const props = PropertiesService.getUserProperties();
+    return props.getProperty(key);
+  } catch (e) {
+    Logger.log('UserProperties read failed for ' + key + ': ' + e.message);
+    // Fallback to cache
+    try {
+      const cache = CacheService.getUserCache();
+      return cache.get(key);
+    } catch (e2) {
+      Logger.log('Cache fallback failed: ' + e2.message);
+      return null;
+    }
+  }
+}
+
+/**
+ * Stores an ID in UserProperties (and cache as backup)
+ * @param {string} key - The property key
+ * @param {string} value - The ID to store
+ */
+function setStoredId_(key, value) {
+  try {
+    const props = PropertiesService.getUserProperties();
+    props.setProperty(key, value);
+  } catch (e) {
+    Logger.log('UserProperties write failed for ' + key + ': ' + e.message);
+  }
+  // Also set in cache as backup
+  try {
+    const cache = CacheService.getUserCache();
+    cache.put(key, value, 21600); // 6 hours
+  } catch (e) {
+    Logger.log('Cache write failed for ' + key + ': ' + e.message);
+  }
+}
+
+/**
+ * Gets a folder by ID, validating it still exists and is not trashed
+ * @param {string} folderId - The folder ID
+ * @returns {GoogleAppsScript.Drive.Folder|null} The folder or null if not found
+ */
+function getFolderById_(folderId) {
+  try {
+    const folder = DriveApp.getFolderById(folderId);
+    if (folder && !folder.isTrashed()) {
+      return folder;
+    }
+  } catch (e) {
+    Logger.log('Folder lookup by ID failed: ' + e.message);
+  }
+  return null;
+}
 
 /**
  * Gets or creates the Visual Gantt settings folder in Google Drive
+ * Uses stored folder ID to avoid permission-intensive folder search
  * @returns {GoogleAppsScript.Drive.Folder} The settings folder
  */
 function getOrCreateConfigFolder_() {
-  const folders = DriveApp.getFoldersByName(DRIVE_FOLDER_NAME);
-
-  if (folders.hasNext()) {
-    const folder = folders.next();
-    Logger.log('Found existing config folder: ' + folder.getId());
-    return folder;
+  // Try stored folder ID first (avoids getFoldersByName which needs broad permissions)
+  const storedFolderId = getStoredId_(USER_PROP_FOLDER_ID);
+  if (storedFolderId) {
+    const folder = getFolderById_(storedFolderId);
+    if (folder) {
+      Logger.log('Found config folder by stored ID: ' + storedFolderId);
+      return folder;
+    }
+    Logger.log('Stored folder ID invalid, will create new folder');
   }
 
-  // Create new folder
+  // Create new folder (this always works with drive.file or drive scope)
   const folder = DriveApp.createFolder(DRIVE_FOLDER_NAME);
-  Logger.log('Created new config folder: ' + folder.getId());
+  const folderId = folder.getId();
+  setStoredId_(USER_PROP_FOLDER_ID, folderId);
+  Logger.log('Created new config folder: ' + folderId);
   return folder;
 }
 
@@ -1137,13 +1205,7 @@ function getOrCreateConfigFolder_() {
  * @returns {string|null} The cached file ID or null
  */
 function getCachedConfigFileId_() {
-  try {
-    const cache = CacheService.getUserCache();
-    return cache.get(CACHE_KEY_FILE_ID);
-  } catch (e) {
-    Logger.log('Cache read failed: ' + e.message);
-    return null;
-  }
+  return getStoredId_(USER_PROP_FILE_ID) || getStoredId_(CACHE_KEY_FILE_ID);
 }
 
 /**
@@ -1151,9 +1213,10 @@ function getCachedConfigFileId_() {
  * @param {string} fileId - The file ID to cache
  */
 function setCachedConfigFileId_(fileId) {
+  setStoredId_(USER_PROP_FILE_ID, fileId);
+  // Also set legacy cache key for compatibility
   try {
     const cache = CacheService.getUserCache();
-    // Cache for 6 hours (max allowed)
     cache.put(CACHE_KEY_FILE_ID, fileId, 21600);
   } catch (e) {
     Logger.log('Cache write failed: ' + e.message);
@@ -1180,27 +1243,35 @@ function getConfigFileById_(fileId) {
 
 /**
  * Gets or creates the config.json file in the settings folder
+ * Uses stored file ID to avoid permission-intensive file search
  * @returns {GoogleAppsScript.Drive.File} The config file
  */
 function getOrCreateConfigFile_() {
-  // Try cached file ID first
+  // Try cached/stored file ID first
   const cachedId = getCachedConfigFileId_();
   if (cachedId) {
     const cachedFile = getConfigFileById_(cachedId);
     if (cachedFile) {
       return cachedFile;
     }
+    Logger.log('Stored file ID invalid, will search or create');
   }
 
-  // Search in the config folder
+  // Get the config folder
   const folder = getOrCreateConfigFolder_();
-  const files = folder.getFilesByName(DRIVE_CONFIG_FILENAME);
 
-  if (files.hasNext()) {
-    const file = files.next();
-    setCachedConfigFileId_(file.getId());
-    Logger.log('Found existing config file: ' + file.getId());
-    return file;
+  // Try to find existing file in folder
+  // Note: getFilesByName on a folder we created should work
+  try {
+    const files = folder.getFilesByName(DRIVE_CONFIG_FILENAME);
+    if (files.hasNext()) {
+      const file = files.next();
+      setCachedConfigFileId_(file.getId());
+      Logger.log('Found existing config file: ' + file.getId());
+      return file;
+    }
+  } catch (e) {
+    Logger.log('File search failed, will create new: ' + e.message);
   }
 
   // Create new config file with empty settings
@@ -1507,16 +1578,21 @@ function diagnoseStorageCapabilities() {
   const testKey = '__visualGantt_storage_test__';
   const testValue = 'test_' + Date.now();
   const results = {
-    googleDrive: { read: false, write: false, delete: false, error: null, fileId: null, folderName: null },
+    googleDrive: { read: false, write: false, delete: false, error: null, fileId: null, folderId: null, folderName: null, storedFolderId: null, storedFileId: null },
     documentProperties: { read: false, write: false, delete: false, error: null },
     userProperties: { read: false, write: false, delete: false, error: null },
     scriptProperties: { read: false, write: false, delete: false, error: null }
   };
 
+  // Get stored IDs (for debugging)
+  results.googleDrive.storedFolderId = getStoredId_(USER_PROP_FOLDER_ID);
+  results.googleDrive.storedFileId = getStoredId_(USER_PROP_FILE_ID);
+
   // Test Google Drive
   try {
     const folder = getOrCreateConfigFolder_();
     results.googleDrive.folderName = folder.getName();
+    results.googleDrive.folderId = folder.getId();
 
     if (writeToDrive_(testKey, testValue)) {
       results.googleDrive.write = true;
@@ -1598,8 +1674,21 @@ function showStorageDiagnostics() {
   if (results.googleDrive.folderName) {
     html += '<div class="info">';
     html += '<strong>Settings Location:</strong> Google Drive > ' + results.googleDrive.folderName + ' > config.json';
+    if (results.googleDrive.folderId) {
+      html += '<br><small>Folder ID: ' + results.googleDrive.folderId + '</small>';
+    }
     if (results.googleDrive.fileId) {
       html += '<br><small>File ID: ' + results.googleDrive.fileId + '</small>';
+    }
+    html += '</div>';
+  } else if (results.googleDrive.error) {
+    html += '<div class="info" style="background-color: #ffebee;">';
+    html += '<strong>Google Drive Error:</strong> ' + results.googleDrive.error;
+    if (results.googleDrive.storedFolderId) {
+      html += '<br><small>Stored Folder ID: ' + results.googleDrive.storedFolderId + '</small>';
+    }
+    if (results.googleDrive.storedFileId) {
+      html += '<br><small>Stored File ID: ' + results.googleDrive.storedFileId + '</small>';
     }
     html += '</div>';
   }
