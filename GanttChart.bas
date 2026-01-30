@@ -292,8 +292,15 @@ Private Function BuildTaskBars(wsData As Worksheet, wsTimeline As Worksheet, _
     Dim barTop As Double
     Dim shp As Shape
     Dim hasSlip As Boolean
+    Dim colWidth As Double
+    Dim baseLeft As Double
 
     barsCreated = 0
+
+    ' Pre-calculate column metrics (more reliable)
+    baseLeft = wsTimeline.Cells(HEADER_ROWS + 1, LABEL_COLS + 1).Left
+    colWidth = wsTimeline.Columns(LABEL_COLS + 1).Width
+    If colWidth < 10 Then colWidth = 50 ' Fallback
 
     For i = 2 To lastRow
         row = HEADER_ROWS + (i - 1)
@@ -302,16 +309,15 @@ Private Function BuildTaskBars(wsData As Worksheet, wsTimeline As Worksheet, _
         wsTimeline.Rows(row).RowHeight = TASK_ROW_HEIGHT
 
         ' Get task data
-        taskName = wsData.Cells(i, COL_TASK_NAME).Value
-        project = wsData.Cells(i, COL_PROJECT).Value
-        owner = wsData.Cells(i, COL_OWNER).Value
+        taskName = "" & wsData.Cells(i, COL_TASK_NAME).Value
+        project = "" & wsData.Cells(i, COL_PROJECT).Value
+        owner = "" & wsData.Cells(i, COL_OWNER).Value
         taskStart = wsData.Cells(i, COL_START_DATE).Value
         taskEnd = wsData.Cells(i, COL_END_DATE).Value
         origEnd = wsData.Cells(i, COL_ORIG_END).Value
 
         On Error Resume Next
-        percentComplete = wsData.Cells(i, COL_PERCENT).Value
-        If Err.Number <> 0 Then percentComplete = 0
+        percentComplete = Val(wsData.Cells(i, COL_PERCENT).Value)
         On Error GoTo 0
 
         ' Write labels
@@ -343,76 +349,58 @@ Private Function BuildTaskBars(wsData As Worksheet, wsTimeline As Worksheet, _
         If endWeek <= 0 Or startWeek >= totalWeeks Then GoTo NextTask
 
         ' Clip to visible range
-        clippedStart = Application.Max(0, startWeek)
-        clippedEnd = Application.Min(totalWeeks, endWeek)
+        If startWeek < 0 Then
+            clippedStart = 0
+        Else
+            clippedStart = startWeek
+        End If
+
+        If endWeek > totalWeeks Then
+            clippedEnd = totalWeeks
+        Else
+            clippedEnd = endWeek
+        End If
 
         If clippedEnd <= clippedStart Then GoTo NextTask
 
-        ' Calculate bar position in pixels
-        barLeft = GetColumnLeft(wsTimeline, LABEL_COLS + 1) + (clippedStart * GetColumnWidth(wsTimeline, LABEL_COLS + 1))
-        barWidth = (clippedEnd - clippedStart) * GetColumnWidth(wsTimeline, LABEL_COLS + 1)
-        barTop = GetRowTop(wsTimeline, row) + BAR_TOP_MARGIN
+        ' Calculate bar position using cell positions (more reliable on Mac)
+        barLeft = baseLeft + (clippedStart * colWidth)
+        barWidth = (clippedEnd - clippedStart) * colWidth
+        barTop = wsTimeline.Cells(row, 1).Top + BAR_TOP_MARGIN
 
-        ' Minimum bar width
+        ' Ensure valid dimensions
         If barWidth < 20 Then barWidth = 20
+        If barLeft < 0 Then barLeft = baseLeft
+        If barTop < 0 Then barTop = 10
 
         ' Choose color based on project or default
         barColor = GetProjectColor(project)
 
         ' Check for slip
         hasSlip = False
-        If Not IsEmpty(origEnd) And IsDate(origEnd) Then
-            If CDate(taskEnd) > CDate(origEnd) Then
-                hasSlip = True
+        If Not IsEmpty(origEnd) Then
+            If IsDate(origEnd) Then
+                If CDate(taskEnd) > CDate(origEnd) Then
+                    hasSlip = True
+                End If
             End If
         End If
 
         ' Create main bar shape
+        On Error Resume Next
         Set shp = wsTimeline.Shapes.AddShape(msoShapeRoundedRectangle, barLeft, barTop, barWidth, BAR_HEIGHT)
+        If Err.Number <> 0 Then
+            Debug.Print "Error creating shape for " & taskName & ": " & Err.Description
+            Err.Clear
+            GoTo NextTask
+        End If
+        On Error GoTo 0
+
         With shp
             .Fill.ForeColor.RGB = barColor
             .Line.ForeColor.RGB = DarkenColor(barColor, 0.2)
             .Line.Weight = 1
-
-            ' Add task name as tooltip
-            .AlternativeText = taskName & vbCrLf & _
-                              Format(taskStart, "mmm d") & " - " & Format(taskEnd, "mmm d") & vbCrLf & _
-                              percentComplete & "% complete"
-
-            ' Show percentage if between 0 and 100
-            If percentComplete > 0 And percentComplete < 100 Then
-                .TextFrame2.TextRange.Text = percentComplete & "%"
-                .TextFrame2.TextRange.Font.Size = 8
-                .TextFrame2.TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
-                .TextFrame2.TextRange.Font.Bold = msoTrue
-                .TextFrame2.TextRange.ParagraphFormat.Alignment = msoAlignCenter
-                .TextFrame2.VerticalAnchor = msoAnchorMiddle
-            End If
         End With
-
-        ' Add slip indicator if applicable
-        If hasSlip Then
-            Dim slipStart As Double
-            Dim slipWidth As Double
-            Dim slipLeft As Double
-            Dim slipShp As Shape
-
-            slipStart = (CDate(origEnd) - startDate) / 7
-            If slipStart < totalWeeks And slipStart >= 0 Then
-                slipLeft = GetColumnLeft(wsTimeline, LABEL_COLS + 1) + (Application.Max(0, slipStart) * GetColumnWidth(wsTimeline, LABEL_COLS + 1))
-                slipWidth = barLeft + barWidth - slipLeft
-
-                If slipWidth > 5 Then
-                    Set slipShp = wsTimeline.Shapes.AddShape(msoShapeRoundedRectangle, slipLeft, barTop, slipWidth, BAR_HEIGHT)
-                    With slipShp
-                        .Fill.ForeColor.RGB = LightenColor(barColor, 0.5)
-                        .Line.ForeColor.RGB = barColor
-                        .Line.Weight = 2
-                        .Line.DashStyle = msoLineDash
-                    End With
-                End If
-            End If
-        End If
 
         barsCreated = barsCreated + 1
 
@@ -431,25 +419,41 @@ Private Sub AddTodayMarker(ws As Worksheet, startDate As Date, totalWeeks As Int
     Dim markerTop As Double
     Dim markerHeight As Double
     Dim shp As Shape
+    Dim colWidth As Double
+    Dim baseLeft As Double
+
+    On Error Resume Next
 
     todayWeek = (Date - startDate) / 7
 
     If todayWeek >= 0 And todayWeek < totalWeeks Then
-        markerLeft = GetColumnLeft(ws, LABEL_COLS + 1) + (todayWeek * GetColumnWidth(ws, LABEL_COLS + 1))
-        markerTop = GetRowTop(ws, HEADER_ROWS + 1)
+        baseLeft = ws.Cells(HEADER_ROWS + 1, LABEL_COLS + 1).Left
+        colWidth = ws.Columns(LABEL_COLS + 1).Width
+        If colWidth < 10 Then colWidth = 50
+
+        markerLeft = baseLeft + (todayWeek * colWidth)
+        markerTop = ws.Cells(HEADER_ROWS + 1, 1).Top
         markerHeight = taskCount * TASK_ROW_HEIGHT
 
-        Set shp = ws.Shapes.AddShape(msoShapeRectangle, markerLeft, markerTop, 3, markerHeight)
-        With shp
-            .Fill.ForeColor.RGB = RGB(255, 87, 34)
-            .Line.Visible = msoFalse
-            .AlternativeText = "Today: " & Format(Date, "mmm d, yyyy")
-        End With
+        If markerHeight > 0 And markerLeft > 0 Then
+            Set shp = ws.Shapes.AddShape(msoShapeRectangle, markerLeft, markerTop, 3, markerHeight)
+            If Not shp Is Nothing Then
+                shp.Fill.ForeColor.RGB = RGB(255, 87, 34)
+                shp.Line.Visible = msoFalse
+            End If
+        End If
 
         ' Add label
-        ws.Cells(3, LABEL_COLS + 1 + Int(todayWeek)).Value = Chr(9660)  ' Down arrow
-        ws.Cells(3, LABEL_COLS + 1 + Int(todayWeek)).Font.Color = RGB(255, 87, 34)
+        Dim weekCol As Integer
+        weekCol = LABEL_COLS + 1 + Int(todayWeek)
+        If weekCol > 0 And weekCol <= ws.Columns.Count Then
+            ws.Cells(3, weekCol).Value = "Today"
+            ws.Cells(3, weekCol).Font.Color = RGB(255, 87, 34)
+            ws.Cells(3, weekCol).Font.Size = 8
+        End If
     End If
+
+    On Error GoTo 0
 End Sub
 
 '===============================================================================
