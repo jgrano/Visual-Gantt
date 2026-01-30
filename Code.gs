@@ -2239,8 +2239,6 @@ function createColoredRectangleImage(width, height, hexColor) {
   const b = parseInt(color.substr(4, 2), 16);
 
   // Create a simple BMP image (24-bit, no compression)
-  // BMP is simpler than PNG and supported by Google Sheets
-
   const rowSize = Math.ceil((width * 3) / 4) * 4; // Rows padded to 4-byte boundary
   const pixelDataSize = rowSize * height;
   const fileSize = 54 + pixelDataSize; // 54 bytes header + pixel data
@@ -2249,20 +2247,20 @@ function createColoredRectangleImage(width, height, hexColor) {
 
   // BMP File Header (14 bytes)
   bmp.push(0x42, 0x4D); // 'BM' signature
-  bmp.push(fileSize & 0xFF, (fileSize >> 8) & 0xFF, (fileSize >> 16) & 0xFF, (fileSize >> 24) & 0xFF); // File size
+  bmp.push(fileSize & 0xFF, (fileSize >> 8) & 0xFF, (fileSize >> 16) & 0xFF, (fileSize >> 24) & 0xFF);
   bmp.push(0, 0, 0, 0); // Reserved
-  bmp.push(54, 0, 0, 0); // Pixel data offset (54 bytes)
+  bmp.push(54, 0, 0, 0); // Pixel data offset
 
   // DIB Header (BITMAPINFOHEADER - 40 bytes)
   bmp.push(40, 0, 0, 0); // Header size
-  bmp.push(width & 0xFF, (width >> 8) & 0xFF, (width >> 16) & 0xFF, (width >> 24) & 0xFF); // Width
-  bmp.push(height & 0xFF, (height >> 8) & 0xFF, (height >> 16) & 0xFF, (height >> 24) & 0xFF); // Height
-  bmp.push(1, 0); // Color planes (1)
-  bmp.push(24, 0); // Bits per pixel (24)
+  bmp.push(width & 0xFF, (width >> 8) & 0xFF, (width >> 16) & 0xFF, (width >> 24) & 0xFF);
+  bmp.push(height & 0xFF, (height >> 8) & 0xFF, (height >> 16) & 0xFF, (height >> 24) & 0xFF);
+  bmp.push(1, 0); // Color planes
+  bmp.push(24, 0); // Bits per pixel
   bmp.push(0, 0, 0, 0); // Compression (none)
   bmp.push(pixelDataSize & 0xFF, (pixelDataSize >> 8) & 0xFF, (pixelDataSize >> 16) & 0xFF, (pixelDataSize >> 24) & 0xFF);
-  bmp.push(0x13, 0x0B, 0, 0); // Horizontal resolution (2835 pixels/meter)
-  bmp.push(0x13, 0x0B, 0, 0); // Vertical resolution
+  bmp.push(0x13, 0x0B, 0, 0); // H resolution
+  bmp.push(0x13, 0x0B, 0, 0); // V resolution
   bmp.push(0, 0, 0, 0); // Colors in palette
   bmp.push(0, 0, 0, 0); // Important colors
 
@@ -2270,17 +2268,19 @@ function createColoredRectangleImage(width, height, hexColor) {
   const padding = rowSize - (width * 3);
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      bmp.push(b, g, r); // BGR order for BMP
+      bmp.push(b, g, r); // BGR order
     }
-    // Add padding bytes
     for (let p = 0; p < padding; p++) {
       bmp.push(0);
     }
   }
 
-  // Convert to byte array and create blob
-  const byteArray = new Uint8Array(bmp);
-  return Utilities.newBlob(byteArray, 'image/bmp', 'bar.bmp');
+  // Convert unsigned bytes (0-255) to signed bytes (-128 to 127) for Google Apps Script
+  const signedBytes = bmp.map(function(byte) {
+    return byte > 127 ? byte - 256 : byte;
+  });
+
+  return Utilities.newBlob(signedBytes, 'image/bmp', 'bar.bmp');
 }
 
 /**
