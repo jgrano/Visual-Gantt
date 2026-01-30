@@ -2092,10 +2092,10 @@ function generateNativeTimeline(tasks, config, startDate, endDate) {
   timelineSheet.getRange(MONTH_ROW, LABEL_COLS, HEADER_ROWS + sortedTasks.length - 1, 1)
     .setBorder(null, null, null, true, false, false, '#CCCCCC', SpreadsheetApp.BorderStyle.SOLID);
 
-  // Flush changes before inserting images
+  // Flush changes before creating bars
   SpreadsheetApp.flush();
 
-  // === CREATE TASK BAR SHAPES (as images) ===
+  // === CREATE TASK BARS (using merged cells with backgrounds) ===
 
   sortedTasks.forEach((task, taskIdx) => {
     if (!task.startDate || !task.endDate) return;
@@ -2113,48 +2113,80 @@ function generateNativeTimeline(tasks, config, startDate, endDate) {
 
     const barEndIdx = hasSlip ? origEndDayIdx : endDayIdx;
 
-    // Calculate bar width in pixels
-    const barWidthDays = barEndIdx - startDayIdx + 1;
-    const barWidth = barWidthDays * DAY_COL_WIDTH;
-
-    // Handle milestones (diamond shape)
+    // Handle milestones (diamond character)
     if (task.taskType === 'Milestone') {
       if (startDayIdx >= 0 && startDayIdx < totalDays) {
-        const milestoneBlob = createMilestoneShape(task.color || '#9C27B0');
-        const startCol = LABEL_COLS + 1 + startDayIdx;
-        const offsetX = (DAY_COL_WIDTH - 20) / 2; // Center the 20px diamond
-        timelineSheet.insertImage(milestoneBlob, startCol, row, Math.max(0, offsetX), BAR_TOP_OFFSET - 2);
+        const milestoneCol = LABEL_COLS + 1 + startDayIdx;
+        // Merge a few columns for visibility
+        const mergeWidth = Math.min(5, totalDays - startDayIdx);
+        if (mergeWidth > 1) {
+          timelineSheet.getRange(row, milestoneCol, 1, mergeWidth).merge();
+        }
+        timelineSheet.getRange(row, milestoneCol)
+          .setValue('◆')
+          .setHorizontalAlignment('left')
+          .setVerticalAlignment('middle')
+          .setFontColor(task.color || '#9C27B0')
+          .setFontSize(14)
+          .setFontWeight('bold');
       }
       return;
     }
 
-    // Create main task bar
-    if (barWidth > 0) {
-      const barColor = task.color || '#4285F4';
-      const progressPercent = config.showPercentComplete ? (task.percentComplete || 0) : 0;
-      const barBlob = createTaskBarShape(barWidth, BAR_HEIGHT, barColor, progressPercent);
+    // Create main task bar (merged cells with background)
+    const startCol = LABEL_COLS + 1 + startDayIdx;
+    const numCols = barEndIdx - startDayIdx + 1;
 
-      const startCol = LABEL_COLS + 1 + startDayIdx;
-      timelineSheet.insertImage(barBlob, startCol, row, 0, BAR_TOP_OFFSET);
+    if (numCols > 0) {
+      const barRange = timelineSheet.getRange(row, startCol, 1, numCols);
+      const barColor = task.color || '#4285F4';
+
+      // Merge cells for the bar
+      if (numCols > 1) {
+        barRange.merge();
+      }
+
+      // Style the bar with solid background and border
+      barRange.setBackground(barColor)
+        .setBorder(true, true, true, true, false, false, darkenColor(barColor, 0.3), SpreadsheetApp.BorderStyle.SOLID)
+        .setVerticalAlignment('middle')
+        .setHorizontalAlignment('center');
+
+      // Show percentage text if applicable
+      if (config.showPercentComplete && task.percentComplete > 0) {
+        barRange.setValue(task.percentComplete + '%')
+          .setFontColor('white')
+          .setFontSize(8)
+          .setFontWeight('bold');
+      }
     }
 
-    // Create slip portion (dashed extension)
+    // Create slip portion (lighter color with dashed border)
     if (hasSlip && endDayIdx > origEndDayIdx) {
-      const slipStartDayIdx = origEndDayIdx + 1;
-      const slipWidthDays = endDayIdx - origEndDayIdx;
-      const slipWidth = slipWidthDays * DAY_COL_WIDTH;
+      const slipStartCol = LABEL_COLS + 1 + origEndDayIdx + 1;
+      const slipNumCols = endDayIdx - origEndDayIdx;
 
-      if (slipWidth > 0) {
+      if (slipNumCols > 0) {
+        const slipRange = timelineSheet.getRange(row, slipStartCol, 1, slipNumCols);
         const slipColor = task.color || '#4285F4';
-        const slipBlob = createSlipBarShape(slipWidth, BAR_HEIGHT, slipColor);
 
-        const slipStartCol = LABEL_COLS + 1 + slipStartDayIdx;
-        timelineSheet.insertImage(slipBlob, slipStartCol, row, 0, BAR_TOP_OFFSET);
+        if (slipNumCols > 1) {
+          slipRange.merge();
+        }
+
+        // Slip bar - lighter background with dashed border
+        slipRange.setBackground(lightenColor(slipColor, 0.6))
+          .setBorder(true, true, true, true, false, false, slipColor, SpreadsheetApp.BorderStyle.DASHED)
+          .setVerticalAlignment('middle');
+
+        // Add termination marker (thick right border)
+        timelineSheet.getRange(row, LABEL_COLS + 1 + endDayIdx)
+          .setBorder(null, null, null, true, false, false, slipColor, SpreadsheetApp.BorderStyle.SOLID_THICK);
       }
     }
   });
 
-  // === TODAY MARKER (as a vertical line image) ===
+  // === TODAY MARKER ===
 
   const today = new Date();
   const todayDayIdx = Math.floor((today - startDate) / (1000 * 60 * 60 * 24));
@@ -2170,12 +2202,9 @@ function generateNativeTimeline(tasks, config, startDate, endDate) {
       .setFontSize(8)
       .setHorizontalAlignment('center');
 
-    // Create vertical line image for today marker
-    const markerHeight = sortedTasks.length * TASK_ROW_HEIGHT;
-    if (markerHeight > 0) {
-      const todayMarkerBlob = createTodayMarkerShape(markerHeight);
-      timelineSheet.insertImage(todayMarkerBlob, todayCol, HEADER_ROWS + 1, DAY_COL_WIDTH / 2 - 1, 0);
-    }
+    // Vertical line through all task rows (using column border)
+    timelineSheet.getRange(HEADER_ROWS + 1, todayCol, sortedTasks.length, 1)
+      .setBorder(null, true, null, true, false, false, '#FF5722', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
   }
 
   // === FREEZE AND FINALIZE ===
@@ -2188,87 +2217,10 @@ function generateNativeTimeline(tasks, config, startDate, endDate) {
 
   SpreadsheetApp.getUi().alert('Timeline Generated',
     'Your Gantt chart has been created in the "' + TIMELINE_SHEET_NAME + '" sheet.\n\n' +
-    '• Task bars are moveable shapes - click and drag to reposition\n' +
-    '• Resize shapes by dragging their edges\n' +
-    '• Use File > Download > PDF to export\n' +
-    '• Slip portions shown with dashed outlines',
+    '• Task bars use precise day-level positioning\n' +
+    '• Slip portions shown with dashed borders\n' +
+    '• Use File > Download > PDF to export',
     SpreadsheetApp.getUi().ButtonSet.OK);
-}
-
-/**
- * Creates a task bar shape as an SVG blob
- * @param {number} width - Bar width in pixels
- * @param {number} height - Bar height in pixels
- * @param {string} color - Bar color (hex)
- * @param {number} progressPercent - Progress percentage (0-100)
- * @returns {Blob} SVG image blob
- */
-function createTaskBarShape(width, height, color, progressPercent) {
-  const darkerColor = darkenColor(color, 0.2);
-  const progressWidth = Math.floor((progressPercent / 100) * (width - 4));
-
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
-    <defs>
-      <linearGradient id="barGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-        <stop offset="0%" style="stop-color:${lightenColor(color, 0.2)};stop-opacity:1" />
-        <stop offset="100%" style="stop-color:${color};stop-opacity:1" />
-      </linearGradient>
-    </defs>
-    <rect x="1" y="1" width="${width-2}" height="${height-2}" rx="4" ry="4" fill="url(#barGrad)" stroke="${darkerColor}" stroke-width="1"/>
-    ${progressPercent > 0 && progressPercent < 100 ?
-      `<rect x="2" y="${height-6}" width="${progressWidth}" height="3" rx="1" ry="1" fill="${darkerColor}" opacity="0.5"/>` : ''}
-  </svg>`;
-
-  return Utilities.newBlob(svg, 'image/svg+xml', 'bar.svg');
-}
-
-/**
- * Creates a slip bar shape (dashed outline) as an SVG blob
- * @param {number} width - Bar width in pixels
- * @param {number} height - Bar height in pixels
- * @param {string} color - Bar color (hex)
- * @returns {Blob} SVG image blob
- */
-function createSlipBarShape(width, height, color) {
-  const lightColor = lightenColor(color, 0.6);
-
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
-    <rect x="1" y="1" width="${width-2}" height="${height-2}" rx="4" ry="4"
-          fill="${lightColor}" stroke="${color}" stroke-width="2" stroke-dasharray="4,3"/>
-    <rect x="${width-4}" y="2" width="3" height="${height-4}" fill="${color}"/>
-  </svg>`;
-
-  return Utilities.newBlob(svg, 'image/svg+xml', 'slip.svg');
-}
-
-/**
- * Creates a milestone diamond shape as an SVG blob
- * @param {string} color - Milestone color (hex)
- * @returns {Blob} SVG image blob
- */
-function createMilestoneShape(color) {
-  const size = 20;
-  const half = size / 2;
-
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">
-    <polygon points="${half},2 ${size-2},${half} ${half},${size-2} 2,${half}"
-             fill="${color}" stroke="${darkenColor(color, 0.3)}" stroke-width="1"/>
-  </svg>`;
-
-  return Utilities.newBlob(svg, 'image/svg+xml', 'milestone.svg');
-}
-
-/**
- * Creates a today marker vertical line as an SVG blob
- * @param {number} height - Line height in pixels
- * @returns {Blob} SVG image blob
- */
-function createTodayMarkerShape(height) {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="3" height="${height}">
-    <line x1="1.5" y1="0" x2="1.5" y2="${height}" stroke="#FF5722" stroke-width="2" stroke-dasharray="6,4"/>
-  </svg>`;
-
-  return Utilities.newBlob(svg, 'image/svg+xml', 'today.svg');
 }
 
 /**
