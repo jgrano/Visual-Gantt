@@ -2091,12 +2091,29 @@ function generateNativeTimeline(tasks, config, startDate, endDate) {
 
   // === CREATE FLOATING TASK BAR IMAGES ===
 
-  sortedTasks.forEach((task, taskIdx) => {
-    if (!task.startDate || !task.endDate) return;
+  let barsCreated = 0;
+  let tasksWithoutDates = 0;
+  let tasksOutOfRange = 0;
 
+  sortedTasks.forEach((task, taskIdx) => {
     const row = HEADER_ROWS + 1 + taskIdx;
+
+    // Check for missing dates
+    if (!task.startDate || !task.endDate) {
+      tasksWithoutDates++;
+      Logger.log('Task "' + task.name + '" missing dates: start=' + task.startDate + ', end=' + task.endDate);
+      return;
+    }
+
     const taskStart = new Date(task.startDate);
     const taskEnd = new Date(task.endDate);
+
+    // Validate dates are actual Date objects
+    if (isNaN(taskStart.getTime()) || isNaN(taskEnd.getTime())) {
+      tasksWithoutDates++;
+      Logger.log('Task "' + task.name + '" has invalid dates: start=' + task.startDate + ', end=' + task.endDate);
+      return;
+    }
 
     // Calculate position in weeks (fractional for precision)
     const startWeekFrac = (taskStart - startDate) / (1000 * 60 * 60 * 24 * 7);
@@ -2106,14 +2123,21 @@ function generateNativeTimeline(tasks, config, startDate, endDate) {
     const startWeek = Math.max(0, startWeekFrac);
     const endWeek = Math.min(totalWeeks, endWeekFrac);
 
-    if (endWeek <= startWeek) return;
+    if (endWeek <= startWeek) {
+      tasksOutOfRange++;
+      Logger.log('Task "' + task.name + '" out of visible range: ' + taskStart + ' to ' + taskEnd);
+      return;
+    }
 
     // Calculate pixel positions
     const startCol = LABEL_COLS + 1 + Math.floor(startWeek);
     const offsetX = Math.round((startWeek % 1) * WEEK_COL_WIDTH);
     const barWidthPx = Math.round((endWeek - startWeek) * WEEK_COL_WIDTH);
 
-    if (barWidthPx < 5) return; // Skip very small bars
+    if (barWidthPx < 5) {
+      tasksOutOfRange++;
+      return;
+    }
 
     // Get or create colored rectangle image
     const barColor = task.color || '#4A6572';
@@ -2124,10 +2148,13 @@ function generateNativeTimeline(tasks, config, startDate, endDate) {
       // Set image size explicitly
       image.setWidth(barWidthPx);
       image.setHeight(BAR_HEIGHT);
+      barsCreated++;
     } catch (e) {
       Logger.log('Error creating bar for task ' + task.name + ': ' + e.message);
     }
   });
+
+  Logger.log('Bar creation summary: created=' + barsCreated + ', missingDates=' + tasksWithoutDates + ', outOfRange=' + tasksOutOfRange);
 
   // === TODAY MARKER ===
 
@@ -2163,13 +2190,19 @@ function generateNativeTimeline(tasks, config, startDate, endDate) {
 
   ss.setActiveSheet(timelineSheet);
 
-  SpreadsheetApp.getUi().alert('Timeline Generated',
-    'Your Gantt chart has been created in the "' + TIMELINE_SHEET_NAME + '" sheet.\n\n' +
-    '• Task bars are floating shapes - click to select, drag to move\n' +
-    '• Drag corners/edges to resize bars\n' +
-    '• Each column = 1 week\n' +
-    '• Use File > Download > PDF to export',
-    SpreadsheetApp.getUi().ButtonSet.OK);
+  let statusMessage = 'Your Gantt chart has been created in the "' + TIMELINE_SHEET_NAME + '" sheet.\n\n';
+  statusMessage += '• Task bars created: ' + barsCreated + ' of ' + sortedTasks.length + '\n';
+  if (tasksWithoutDates > 0) {
+    statusMessage += '• Tasks missing dates: ' + tasksWithoutDates + '\n';
+  }
+  if (tasksOutOfRange > 0) {
+    statusMessage += '• Tasks outside date range: ' + tasksOutOfRange + '\n';
+  }
+  statusMessage += '\n• Click bars to select, drag to move\n';
+  statusMessage += '• Drag corners/edges to resize\n';
+  statusMessage += '• Each column = 1 week';
+
+  SpreadsheetApp.getUi().alert('Timeline Generated', statusMessage, SpreadsheetApp.getUi().ButtonSet.OK);
 }
 
 /**
