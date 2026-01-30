@@ -1916,6 +1916,307 @@ function generateTimeline() {
     today: new Date().toISOString()
   };
 
+  // Generate native Sheets timeline (new approach - no canvas/images)
+  generateNativeTimeline(tasks, config, startDate, endDate);
+}
+
+/**
+ * Generates a native Google Sheets Gantt chart using cell backgrounds
+ * This replaces the canvas-based approach for better quality and editability
+ */
+function generateNativeTimeline(tasks, config, startDate, endDate) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let timelineSheet = ss.getSheetByName(TIMELINE_SHEET_NAME);
+
+  // Create or clear timeline sheet
+  if (!timelineSheet) {
+    timelineSheet = ss.insertSheet(TIMELINE_SHEET_NAME, 1);
+  } else {
+    timelineSheet.clear();
+    // Remove all existing drawings/images
+    const drawings = timelineSheet.getDrawings();
+    drawings.forEach(d => d.remove());
+  }
+
+  // Prepare sorted tasks
+  const sortedTasks = prepareTasksForChart(tasks, config);
+
+  // Calculate weeks in range
+  const weeks = [];
+  const weekStart = new Date(startDate);
+  weekStart.setDate(weekStart.getDate() - weekStart.getDay()); // Start of week (Sunday)
+
+  while (weekStart <= endDate) {
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 6);
+    weeks.push({
+      start: new Date(weekStart),
+      end: weekEnd,
+      label: 'W' + getWeekNumber(weekStart),
+      month: weekStart.toLocaleString('default', { month: 'short', year: 'numeric' })
+    });
+    weekStart.setDate(weekStart.getDate() + 7);
+  }
+
+  // Layout constants
+  const HEADER_ROWS = 2;  // Month row + Week row
+  const LABEL_COLS = 3;   // Project, Task Name, Owner
+  const TASK_ROW_HEIGHT = 30;
+  const HEADER_ROW_HEIGHT = 25;
+
+  // Set up column widths
+  timelineSheet.setColumnWidth(1, 80);   // Project
+  timelineSheet.setColumnWidth(2, 180);  // Task Name
+  timelineSheet.setColumnWidth(3, 120);  // Owner
+
+  // Set week column widths
+  for (let i = 0; i < weeks.length; i++) {
+    timelineSheet.setColumnWidth(LABEL_COLS + 1 + i, 60);
+  }
+
+  // Set row heights
+  timelineSheet.setRowHeight(1, HEADER_ROW_HEIGHT);
+  timelineSheet.setRowHeight(2, HEADER_ROW_HEIGHT);
+
+  // === BUILD HEADER ===
+
+  // Row 1: Month headers (merged)
+  let currentMonth = '';
+  let monthStartCol = LABEL_COLS + 1;
+  const monthMerges = [];
+
+  weeks.forEach((week, idx) => {
+    if (week.month !== currentMonth) {
+      if (currentMonth !== '' && idx > 0) {
+        monthMerges.push({ start: monthStartCol, end: LABEL_COLS + idx, month: currentMonth });
+      }
+      currentMonth = week.month;
+      monthStartCol = LABEL_COLS + 1 + idx;
+    }
+  });
+  // Add last month
+  monthMerges.push({ start: monthStartCol, end: LABEL_COLS + weeks.length, month: currentMonth });
+
+  // Apply month headers
+  monthMerges.forEach(merge => {
+    if (merge.end > merge.start) {
+      timelineSheet.getRange(1, merge.start, 1, merge.end - merge.start + 1).merge();
+    }
+    timelineSheet.getRange(1, merge.start).setValue(merge.month)
+      .setFontWeight('bold')
+      .setHorizontalAlignment('center')
+      .setBackground('#4285F4')
+      .setFontColor('white');
+  });
+
+  // Row 2: Week headers
+  weeks.forEach((week, idx) => {
+    timelineSheet.getRange(2, LABEL_COLS + 1 + idx)
+      .setValue(week.label)
+      .setHorizontalAlignment('center')
+      .setBackground('#E8F0FE')
+      .setFontSize(9);
+  });
+
+  // Column headers
+  timelineSheet.getRange(1, 1, 1, 3).setValues([['Project', 'Task', 'Owner']]);
+  timelineSheet.getRange(1, 1, 2, 3).setFontWeight('bold').setBackground('#F8F9FA');
+  timelineSheet.getRange(2, 1, 1, 3).merge(); // Merge row 2 label area
+
+  // === BUILD TASK ROWS ===
+
+  sortedTasks.forEach((task, taskIdx) => {
+    const row = HEADER_ROWS + 1 + taskIdx;
+    timelineSheet.setRowHeight(row, TASK_ROW_HEIGHT);
+
+    // Task labels
+    timelineSheet.getRange(row, 1).setValue(task.project || '');
+    timelineSheet.getRange(row, 2).setValue(task.name).setFontWeight('bold');
+    timelineSheet.getRange(row, 3).setValue(task.owner || '').setFontColor('#666666');
+
+    // Alternate row background
+    if (taskIdx % 2 === 1) {
+      timelineSheet.getRange(row, 1, 1, LABEL_COLS + weeks.length).setBackground('#FAFAFA');
+    }
+
+    // Skip if no dates
+    if (!task.startDate || !task.endDate) return;
+
+    // Find which weeks this task spans
+    const taskStart = new Date(task.startDate);
+    const taskEnd = new Date(task.endDate);
+    const origEnd = task.originalEndDate ? new Date(task.originalEndDate) : null;
+
+    // Determine if task has slipped
+    const hasSlip = origEnd && taskEnd > origEnd;
+
+    weeks.forEach((week, weekIdx) => {
+      const col = LABEL_COLS + 1 + weekIdx;
+      const weekMid = new Date(week.start);
+      weekMid.setDate(weekMid.getDate() + 3);
+
+      // Check if task is active this week
+      const isInOriginalRange = taskStart <= week.end && (origEnd || taskEnd) >= week.start;
+      const isInSlipRange = hasSlip && origEnd < week.end && taskEnd >= week.start && week.start > origEnd;
+      const isInTaskRange = taskStart <= week.end && taskEnd >= week.start;
+
+      if (task.taskType === 'Milestone') {
+        // Milestone - diamond shape using emoji or special character
+        if (taskStart >= week.start && taskStart <= week.end) {
+          timelineSheet.getRange(row, col)
+            .setValue('◆')
+            .setHorizontalAlignment('center')
+            .setVerticalAlignment('middle')
+            .setFontColor(task.color || '#9C27B0')
+            .setFontSize(14);
+        }
+      } else if (isInSlipRange) {
+        // Slip portion - different style
+        const cell = timelineSheet.getRange(row, col);
+        cell.setBackground(lightenColor(task.color || '#DC3545', 0.6));
+
+        // Add dashed border to indicate slip
+        cell.setBorder(true, null, true, null, false, false, '#666666', SpreadsheetApp.BorderStyle.DASHED);
+      } else if (isInTaskRange && !isInSlipRange) {
+        // Normal task bar
+        const cell = timelineSheet.getRange(row, col);
+        cell.setBackground(task.color || '#2196F3');
+
+        // Show % complete with darker shade
+        if (config.showPercentComplete && task.percentComplete > 0) {
+          // Calculate if this week falls in completed portion
+          const taskDuration = (taskEnd - taskStart) / (1000 * 60 * 60 * 24);
+          const completedDays = taskDuration * (task.percentComplete / 100);
+          const completedEnd = new Date(taskStart);
+          completedEnd.setDate(completedEnd.getDate() + completedDays);
+
+          if (week.end <= completedEnd) {
+            // Fully completed week
+            cell.setBackground(darkenColor(task.color || '#2196F3', 0.2));
+          } else if (week.start < completedEnd && week.end > completedEnd) {
+            // Partially completed - show percentage text
+            cell.setValue(task.percentComplete + '%')
+              .setFontColor('white')
+              .setFontSize(8)
+              .setHorizontalAlignment('center')
+              .setVerticalAlignment('middle');
+          }
+        }
+      }
+    });
+
+    // Add slip end marker (vertical line at end of slip)
+    if (hasSlip) {
+      const slipEndWeekIdx = weeks.findIndex(w => taskEnd >= w.start && taskEnd <= w.end);
+      if (slipEndWeekIdx >= 0) {
+        const cell = timelineSheet.getRange(row, LABEL_COLS + 1 + slipEndWeekIdx);
+        cell.setBorder(null, null, null, true, false, false, task.color || '#DC3545', SpreadsheetApp.BorderStyle.SOLID_THICK);
+      }
+    }
+  });
+
+  // === ADD TODAY MARKER ===
+
+  const today = new Date();
+  const todayWeekIdx = weeks.findIndex(w => today >= w.start && today <= w.end);
+
+  if (todayWeekIdx >= 0 && config.showTodayMarker) {
+    const todayCol = LABEL_COLS + 1 + todayWeekIdx;
+
+    // Add "Today" label in header
+    timelineSheet.getRange(2, todayCol)
+      .setFontColor('#FF5722')
+      .setFontWeight('bold')
+      .setNote('Today: ' + today.toLocaleDateString());
+
+    // Add vertical border for today
+    const todayRange = timelineSheet.getRange(HEADER_ROWS, todayCol, sortedTasks.length + 1, 1);
+    todayRange.setBorder(null, true, null, true, false, false, '#FF5722', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+  }
+
+  // === FINAL FORMATTING ===
+
+  // Freeze header rows and label columns
+  timelineSheet.setFrozenRows(HEADER_ROWS);
+  timelineSheet.setFrozenColumns(LABEL_COLS);
+
+  // Add outer borders
+  const fullRange = timelineSheet.getRange(1, 1, HEADER_ROWS + sortedTasks.length, LABEL_COLS + weeks.length);
+  fullRange.setBorder(true, true, true, true, null, null, '#CCCCCC', SpreadsheetApp.BorderStyle.SOLID);
+
+  // Add grid lines for week columns
+  const gridRange = timelineSheet.getRange(1, LABEL_COLS + 1, HEADER_ROWS + sortedTasks.length, weeks.length);
+  gridRange.setBorder(null, null, null, null, true, true, '#E0E0E0', SpreadsheetApp.BorderStyle.SOLID);
+
+  // Add title
+  timelineSheet.insertRowBefore(1);
+  timelineSheet.getRange(1, 1).setValue('Project Timeline')
+    .setFontSize(16)
+    .setFontWeight('bold');
+  timelineSheet.getRange(1, 2).setValue(formatDateShort(startDate) + ' - ' + formatDateShort(endDate))
+    .setFontColor('#666666');
+  timelineSheet.setRowHeight(1, 35);
+
+  // Update frozen rows to include title
+  timelineSheet.setFrozenRows(HEADER_ROWS + 1);
+
+  // Switch to timeline sheet
+  ss.setActiveSheet(timelineSheet);
+
+  SpreadsheetApp.getUi().alert('Timeline Generated',
+    'Your Gantt chart has been created in the "' + TIMELINE_SHEET_NAME + '" sheet.\n\n' +
+    'You can now:\n' +
+    '• Edit cells directly to adjust the timeline\n' +
+    '• Use File > Download > PDF to export\n' +
+    '• Resize columns to adjust the view',
+    SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+/**
+ * Gets the ISO week number for a date
+ */
+function getWeekNumber(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+}
+
+/**
+ * Formats date as short string
+ */
+function formatDateShort(date) {
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+/**
+ * Lightens a hex color
+ */
+function lightenColor(hex, amount) {
+  const num = parseInt(hex.replace('#', ''), 16);
+  const r = Math.min(255, Math.floor((num >> 16) + (255 - (num >> 16)) * amount));
+  const g = Math.min(255, Math.floor(((num >> 8) & 0x00FF) + (255 - ((num >> 8) & 0x00FF)) * amount));
+  const b = Math.min(255, Math.floor((num & 0x0000FF) + (255 - (num & 0x0000FF)) * amount));
+  return '#' + (0x1000000 + r * 0x10000 + g * 0x100 + b).toString(16).slice(1);
+}
+
+/**
+ * Darkens a hex color
+ */
+function darkenColor(hex, amount) {
+  const num = parseInt(hex.replace('#', ''), 16);
+  const r = Math.max(0, Math.floor((num >> 16) * (1 - amount)));
+  const g = Math.max(0, Math.floor(((num >> 8) & 0x00FF) * (1 - amount)));
+  const b = Math.max(0, Math.floor((num & 0x0000FF) * (1 - amount)));
+  return '#' + (0x1000000 + r * 0x10000 + g * 0x100 + b).toString(16).slice(1);
+}
+
+/* ============================================================================
+ * OLD CANVAS-BASED TIMELINE GENERATION (COMMENTED OUT)
+ * Keeping this code in case we need to revert
+ * ============================================================================
+
   // Generate chart using HTML template
   const template = HtmlService.createTemplateFromFile('ChartRenderer');
   template.chartData = JSON.stringify(chartData);
@@ -1926,7 +2227,8 @@ function generateTimeline() {
 
   // Show chart generation dialog
   ui.showModalDialog(html, 'Generating Timeline...');
-}
+
+============================================================================ */
 
 /**
  * Prepares tasks for chart rendering
