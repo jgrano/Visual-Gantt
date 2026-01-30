@@ -186,27 +186,20 @@
     const FONT_SIZE = config.fontSize || 12;
     const HEADER_HEIGHT = 60;
 
-    // Calculate dimensions - fit the date range within configured width (no horizontal scrolling)
+    // Calculate dimensions - fit everything within configured width (no scrolling)
     const totalDays = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24));
-    const configuredWidth = config.chartWidth || 1200;
-    const chartWidth = configuredWidth;  // Use configured width, don't expand
-    const chartHeight = Math.max(config.chartHeight || 600, MARGIN.top + (tasks.length * ROW_HEIGHT) + MARGIN.bottom + 100);
+    const configuredWidth = config.chartWidth || 1100;
+    const configuredHeight = config.chartHeight || 700;
 
-    // Set canvas size
-    canvas.width = chartWidth + MARGIN.left + MARGIN.right;
-    canvas.height = chartHeight;
+    // Canvas size equals configured size (no margins added - they're internal)
+    const canvasWidth = configuredWidth;
+    const canvasHeight = Math.max(configuredHeight, MARGIN.top + (tasks.length * ROW_HEIGHT) + MARGIN.bottom + 50);
 
-    // High DPI support
-    const dpr = window.devicePixelRatio || 1;
-    canvas.style.width = canvas.width + 'px';
-    canvas.style.height = canvas.height + 'px';
-    canvas.width *= dpr;
-    canvas.height *= dpr;
-    ctx.scale(dpr, dpr);
-
-    // Restore logical dimensions for calculations
-    const canvasWidth = canvas.width / dpr;
-    const canvasHeight = canvas.height / dpr;
+    // Set canvas to 1x resolution (no DPI scaling to avoid pixel limits)
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
+    canvas.style.width = canvasWidth + 'px';
+    canvas.style.height = canvasHeight + 'px';
 
     // Chart area
     const chartArea = {
@@ -813,28 +806,22 @@
       btn.disabled = true;
       btn.textContent = 'Saving...';
 
-      document.getElementById('status').textContent = 'Preparing image...';
+      document.getElementById('status').textContent = 'Saving to sheet...';
       document.getElementById('status').className = 'status info';
 
-      // Create a new canvas at 1x resolution for saving (avoiding DPI scaling issues)
-      // Google Sheets has a 1 million pixel and 2MB limit for inserted images
-      const dpr = window.devicePixelRatio || 1;
-      const logicalWidth = canvas.width / dpr;
-      const logicalHeight = canvas.height / dpr;
-
-      // Create 1x resolution canvas for export
-      const exportCanvas = document.createElement('canvas');
-      exportCanvas.width = logicalWidth;
-      exportCanvas.height = logicalHeight;
-      const exportCtx = exportCanvas.getContext('2d');
-
-      // Draw the high-DPI canvas scaled down to 1x
-      exportCtx.drawImage(canvas, 0, 0, logicalWidth, logicalHeight);
+      // Canvas is already at 1x resolution, so save directly
+      // Google Sheets has a 1 million pixel and 2MB limit
+      const totalPixels = canvas.width * canvas.height;
+      if (totalPixels > 950000) {
+        document.getElementById('status').textContent = 'Chart too large. Please reduce chart size in Settings.';
+        document.getElementById('status').className = 'status error';
+        btn.disabled = false;
+        btn.textContent = 'Save to Sheet';
+        return;
+      }
 
       // Get as high-quality JPEG
-      let dataUrl = exportCanvas.toDataURL('image/jpeg', 0.92);
-
-      document.getElementById('status').textContent = 'Saving to sheet...';
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
 
       google.script.run
         .withSuccessHandler(function(result) {
