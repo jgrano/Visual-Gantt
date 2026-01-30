@@ -1921,8 +1921,8 @@ function generateTimeline() {
 }
 
 /**
- * Generates a native Google Sheets Gantt chart using cell backgrounds
- * This replaces the canvas-based approach for better quality and editability
+ * Generates a native Google Sheets Gantt chart using drawing shapes (rectangles)
+ * This creates proper visual bars that can be moved and resized
  */
 function generateNativeTimeline(tasks, config, startDate, endDate) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -1933,243 +1933,321 @@ function generateNativeTimeline(tasks, config, startDate, endDate) {
     timelineSheet = ss.insertSheet(TIMELINE_SHEET_NAME, 1);
   } else {
     timelineSheet.clear();
-    // Remove all existing drawings/images
-    const drawings = timelineSheet.getDrawings();
-    drawings.forEach(d => d.remove());
+    // Remove all existing images/drawings
+    const images = timelineSheet.getImages();
+    images.forEach(img => img.remove());
   }
 
   // Prepare sorted tasks
   const sortedTasks = prepareTasksForChart(tasks, config);
 
-  // Calculate weeks in range
-  const weeks = [];
-  const weekStart = new Date(startDate);
-  weekStart.setDate(weekStart.getDate() - weekStart.getDay()); // Start of week (Sunday)
-
-  while (weekStart <= endDate) {
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekEnd.getDate() + 6);
-    weeks.push({
-      start: new Date(weekStart),
-      end: weekEnd,
-      label: 'W' + getWeekNumber(weekStart),
-      month: weekStart.toLocaleString('default', { month: 'short', year: 'numeric' })
-    });
-    weekStart.setDate(weekStart.getDate() + 7);
-  }
+  // Calculate date columns (one column per day for precision)
+  const totalDays = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24));
 
   // Layout constants
-  const HEADER_ROWS = 2;  // Month row + Week row
+  const TITLE_ROW = 1;
+  const MONTH_ROW = 2;
+  const WEEK_ROW = 3;
+  const HEADER_ROWS = 3;
   const LABEL_COLS = 3;   // Project, Task Name, Owner
-  const TASK_ROW_HEIGHT = 30;
-  const HEADER_ROW_HEIGHT = 25;
+  const DAY_COL_WIDTH = 4;  // Pixels per day column (narrow for precision)
+  const TASK_ROW_HEIGHT = 40;
+  const BAR_HEIGHT = 22;
+  const BAR_TOP_OFFSET = 9;  // Pixels from top of row to bar
 
-  // Set up column widths
+  // Set up label column widths
   timelineSheet.setColumnWidth(1, 80);   // Project
-  timelineSheet.setColumnWidth(2, 180);  // Task Name
-  timelineSheet.setColumnWidth(3, 120);  // Owner
+  timelineSheet.setColumnWidth(2, 200);  // Task Name
+  timelineSheet.setColumnWidth(3, 130);  // Owner
 
-  // Set week column widths
-  for (let i = 0; i < weeks.length; i++) {
-    timelineSheet.setColumnWidth(LABEL_COLS + 1 + i, 60);
+  // Set up day columns (narrow for precise positioning)
+  for (let i = 0; i < totalDays; i++) {
+    timelineSheet.setColumnWidth(LABEL_COLS + 1 + i, DAY_COL_WIDTH);
   }
 
   // Set row heights
-  timelineSheet.setRowHeight(1, HEADER_ROW_HEIGHT);
-  timelineSheet.setRowHeight(2, HEADER_ROW_HEIGHT);
+  timelineSheet.setRowHeight(TITLE_ROW, 40);
+  timelineSheet.setRowHeight(MONTH_ROW, 22);
+  timelineSheet.setRowHeight(WEEK_ROW, 22);
+
+  for (let i = 0; i < sortedTasks.length; i++) {
+    timelineSheet.setRowHeight(HEADER_ROWS + 1 + i, TASK_ROW_HEIGHT);
+  }
 
   // === BUILD HEADER ===
 
-  // Row 1: Month headers (merged)
+  // Title row
+  timelineSheet.getRange(TITLE_ROW, 1).setValue('Project Timeline')
+    .setFontSize(18)
+    .setFontWeight('bold');
+  timelineSheet.getRange(TITLE_ROW, 2).setValue(formatDateShort(startDate) + ' - ' + formatDateShort(endDate))
+    .setFontColor('#666666')
+    .setFontSize(11);
+
+  // Build month and week headers
   let currentMonth = '';
   let monthStartCol = LABEL_COLS + 1;
-  const monthMerges = [];
+  const monthRanges = [];
 
-  weeks.forEach((week, idx) => {
-    if (week.month !== currentMonth) {
-      if (currentMonth !== '' && idx > 0) {
-        monthMerges.push({ start: monthStartCol, end: LABEL_COLS + idx, month: currentMonth });
+  for (let i = 0; i < totalDays; i++) {
+    const date = new Date(startDate);
+    date.setDate(date.getDate() + i);
+    const monthLabel = date.toLocaleString('default', { month: 'short', year: 'numeric' });
+
+    if (monthLabel !== currentMonth) {
+      if (currentMonth !== '') {
+        monthRanges.push({ start: monthStartCol, end: LABEL_COLS + i, month: currentMonth });
       }
-      currentMonth = week.month;
-      monthStartCol = LABEL_COLS + 1 + idx;
+      currentMonth = monthLabel;
+      monthStartCol = LABEL_COLS + 1 + i;
     }
-  });
+
+    // Week labels (every 7 days on Monday)
+    if (date.getDay() === 1) { // Monday
+      timelineSheet.getRange(WEEK_ROW, LABEL_COLS + 1 + i)
+        .setValue('W' + getWeekNumber(date))
+        .setFontSize(7)
+        .setHorizontalAlignment('left');
+    }
+  }
   // Add last month
-  monthMerges.push({ start: monthStartCol, end: LABEL_COLS + weeks.length, month: currentMonth });
+  monthRanges.push({ start: monthStartCol, end: LABEL_COLS + totalDays, month: currentMonth });
 
   // Apply month headers
-  monthMerges.forEach(merge => {
-    if (merge.end > merge.start) {
-      timelineSheet.getRange(1, merge.start, 1, merge.end - merge.start + 1).merge();
+  monthRanges.forEach(range => {
+    const numCols = range.end - range.start + 1;
+    if (numCols > 1) {
+      timelineSheet.getRange(MONTH_ROW, range.start, 1, numCols).merge();
     }
-    timelineSheet.getRange(1, merge.start).setValue(merge.month)
+    timelineSheet.getRange(MONTH_ROW, range.start)
+      .setValue(range.month)
       .setFontWeight('bold')
       .setHorizontalAlignment('center')
       .setBackground('#4285F4')
-      .setFontColor('white');
+      .setFontColor('white')
+      .setFontSize(10);
   });
 
-  // Row 2: Week headers
-  weeks.forEach((week, idx) => {
-    timelineSheet.getRange(2, LABEL_COLS + 1 + idx)
-      .setValue(week.label)
-      .setHorizontalAlignment('center')
-      .setBackground('#E8F0FE')
-      .setFontSize(9);
-  });
+  // Style week row
+  timelineSheet.getRange(WEEK_ROW, LABEL_COLS + 1, 1, totalDays).setBackground('#E8F0FE');
 
   // Column headers
-  timelineSheet.getRange(1, 1, 1, 3).setValues([['Project', 'Task', 'Owner']]);
-  timelineSheet.getRange(1, 1, 2, 3).setFontWeight('bold').setBackground('#F8F9FA');
-  timelineSheet.getRange(2, 1, 1, 3).merge(); // Merge row 2 label area
+  timelineSheet.getRange(MONTH_ROW, 1).setValue('Project').setFontWeight('bold').setBackground('#F8F9FA');
+  timelineSheet.getRange(MONTH_ROW, 2).setValue('Task').setFontWeight('bold').setBackground('#F8F9FA');
+  timelineSheet.getRange(MONTH_ROW, 3).setValue('Owner').setFontWeight('bold').setBackground('#F8F9FA');
+  timelineSheet.getRange(WEEK_ROW, 1, 1, 3).setBackground('#F8F9FA');
 
-  // === BUILD TASK ROWS ===
+  // === BUILD TASK ROWS (labels only) ===
 
   sortedTasks.forEach((task, taskIdx) => {
     const row = HEADER_ROWS + 1 + taskIdx;
-    timelineSheet.setRowHeight(row, TASK_ROW_HEIGHT);
 
     // Task labels
-    timelineSheet.getRange(row, 1).setValue(task.project || '');
-    timelineSheet.getRange(row, 2).setValue(task.name).setFontWeight('bold');
-    timelineSheet.getRange(row, 3).setValue(task.owner || '').setFontColor('#666666');
+    timelineSheet.getRange(row, 1).setValue(task.project || '').setFontSize(9);
+    timelineSheet.getRange(row, 2).setValue(task.name).setFontWeight('bold').setFontSize(10);
+    timelineSheet.getRange(row, 3).setValue(task.owner || '').setFontColor('#666666').setFontSize(9);
 
     // Alternate row background
     if (taskIdx % 2 === 1) {
-      timelineSheet.getRange(row, 1, 1, LABEL_COLS + weeks.length).setBackground('#FAFAFA');
+      timelineSheet.getRange(row, 1, 1, LABEL_COLS + totalDays).setBackground('#FAFAFA');
     }
+  });
 
-    // Skip if no dates
+  // === ADD GRID LINES ===
+
+  // Vertical lines for weeks (every 7 columns)
+  for (let i = 7; i < totalDays; i += 7) {
+    timelineSheet.getRange(HEADER_ROWS, LABEL_COLS + 1 + i, sortedTasks.length + 1, 1)
+      .setBorder(null, true, null, null, false, false, '#E0E0E0', SpreadsheetApp.BorderStyle.SOLID);
+  }
+
+  // Horizontal lines between tasks
+  for (let i = 0; i <= sortedTasks.length; i++) {
+    timelineSheet.getRange(HEADER_ROWS + i, 1, 1, LABEL_COLS + totalDays)
+      .setBorder(null, null, true, null, false, false, '#E8E8E8', SpreadsheetApp.BorderStyle.SOLID);
+  }
+
+  // Border around label columns
+  timelineSheet.getRange(MONTH_ROW, LABEL_COLS, HEADER_ROWS + sortedTasks.length - 1, 1)
+    .setBorder(null, null, null, true, false, false, '#CCCCCC', SpreadsheetApp.BorderStyle.SOLID);
+
+  // Flush changes before inserting images
+  SpreadsheetApp.flush();
+
+  // === CREATE TASK BAR SHAPES (as images) ===
+
+  sortedTasks.forEach((task, taskIdx) => {
     if (!task.startDate || !task.endDate) return;
 
-    // Find which weeks this task spans
+    const row = HEADER_ROWS + 1 + taskIdx;
     const taskStart = new Date(task.startDate);
     const taskEnd = new Date(task.endDate);
     const origEnd = task.originalEndDate ? new Date(task.originalEndDate) : null;
-
-    // Determine if task has slipped
     const hasSlip = origEnd && taskEnd > origEnd;
 
-    weeks.forEach((week, weekIdx) => {
-      const col = LABEL_COLS + 1 + weekIdx;
-      const weekMid = new Date(week.start);
-      weekMid.setDate(weekMid.getDate() + 3);
+    // Calculate day indices
+    const startDayIdx = Math.max(0, Math.floor((taskStart - startDate) / (1000 * 60 * 60 * 24)));
+    const endDayIdx = Math.min(totalDays - 1, Math.floor((taskEnd - startDate) / (1000 * 60 * 60 * 24)));
+    const origEndDayIdx = origEnd ? Math.min(totalDays - 1, Math.floor((origEnd - startDate) / (1000 * 60 * 60 * 24))) : endDayIdx;
 
-      // Check if task is active this week
-      const isInOriginalRange = taskStart <= week.end && (origEnd || taskEnd) >= week.start;
-      const isInSlipRange = hasSlip && origEnd < week.end && taskEnd >= week.start && week.start > origEnd;
-      const isInTaskRange = taskStart <= week.end && taskEnd >= week.start;
+    const barEndIdx = hasSlip ? origEndDayIdx : endDayIdx;
 
-      if (task.taskType === 'Milestone') {
-        // Milestone - diamond shape using emoji or special character
-        if (taskStart >= week.start && taskStart <= week.end) {
-          timelineSheet.getRange(row, col)
-            .setValue('◆')
-            .setHorizontalAlignment('center')
-            .setVerticalAlignment('middle')
-            .setFontColor(task.color || '#9C27B0')
-            .setFontSize(14);
-        }
-      } else if (isInSlipRange) {
-        // Slip portion - different style
-        const cell = timelineSheet.getRange(row, col);
-        cell.setBackground(lightenColor(task.color || '#DC3545', 0.6));
+    // Calculate bar width in pixels
+    const barWidthDays = barEndIdx - startDayIdx + 1;
+    const barWidth = barWidthDays * DAY_COL_WIDTH;
 
-        // Add dashed border to indicate slip
-        cell.setBorder(true, null, true, null, false, false, '#666666', SpreadsheetApp.BorderStyle.DASHED);
-      } else if (isInTaskRange && !isInSlipRange) {
-        // Normal task bar
-        const cell = timelineSheet.getRange(row, col);
-        cell.setBackground(task.color || '#2196F3');
-
-        // Show % complete with darker shade
-        if (config.showPercentComplete && task.percentComplete > 0) {
-          // Calculate if this week falls in completed portion
-          const taskDuration = (taskEnd - taskStart) / (1000 * 60 * 60 * 24);
-          const completedDays = taskDuration * (task.percentComplete / 100);
-          const completedEnd = new Date(taskStart);
-          completedEnd.setDate(completedEnd.getDate() + completedDays);
-
-          if (week.end <= completedEnd) {
-            // Fully completed week
-            cell.setBackground(darkenColor(task.color || '#2196F3', 0.2));
-          } else if (week.start < completedEnd && week.end > completedEnd) {
-            // Partially completed - show percentage text
-            cell.setValue(task.percentComplete + '%')
-              .setFontColor('white')
-              .setFontSize(8)
-              .setHorizontalAlignment('center')
-              .setVerticalAlignment('middle');
-          }
-        }
+    // Handle milestones (diamond shape)
+    if (task.taskType === 'Milestone') {
+      if (startDayIdx >= 0 && startDayIdx < totalDays) {
+        const milestoneBlob = createMilestoneShape(task.color || '#9C27B0');
+        const startCol = LABEL_COLS + 1 + startDayIdx;
+        const offsetX = (DAY_COL_WIDTH - 20) / 2; // Center the 20px diamond
+        timelineSheet.insertImage(milestoneBlob, startCol, row, Math.max(0, offsetX), BAR_TOP_OFFSET - 2);
       }
-    });
+      return;
+    }
 
-    // Add slip end marker (vertical line at end of slip)
-    if (hasSlip) {
-      const slipEndWeekIdx = weeks.findIndex(w => taskEnd >= w.start && taskEnd <= w.end);
-      if (slipEndWeekIdx >= 0) {
-        const cell = timelineSheet.getRange(row, LABEL_COLS + 1 + slipEndWeekIdx);
-        cell.setBorder(null, null, null, true, false, false, task.color || '#DC3545', SpreadsheetApp.BorderStyle.SOLID_THICK);
+    // Create main task bar
+    if (barWidth > 0) {
+      const barColor = task.color || '#4285F4';
+      const progressPercent = config.showPercentComplete ? (task.percentComplete || 0) : 0;
+      const barBlob = createTaskBarShape(barWidth, BAR_HEIGHT, barColor, progressPercent);
+
+      const startCol = LABEL_COLS + 1 + startDayIdx;
+      timelineSheet.insertImage(barBlob, startCol, row, 0, BAR_TOP_OFFSET);
+    }
+
+    // Create slip portion (dashed extension)
+    if (hasSlip && endDayIdx > origEndDayIdx) {
+      const slipStartDayIdx = origEndDayIdx + 1;
+      const slipWidthDays = endDayIdx - origEndDayIdx;
+      const slipWidth = slipWidthDays * DAY_COL_WIDTH;
+
+      if (slipWidth > 0) {
+        const slipColor = task.color || '#4285F4';
+        const slipBlob = createSlipBarShape(slipWidth, BAR_HEIGHT, slipColor);
+
+        const slipStartCol = LABEL_COLS + 1 + slipStartDayIdx;
+        timelineSheet.insertImage(slipBlob, slipStartCol, row, 0, BAR_TOP_OFFSET);
       }
     }
   });
 
-  // === ADD TODAY MARKER ===
+  // === TODAY MARKER (as a vertical line image) ===
 
   const today = new Date();
-  const todayWeekIdx = weeks.findIndex(w => today >= w.start && today <= w.end);
+  const todayDayIdx = Math.floor((today - startDate) / (1000 * 60 * 60 * 24));
 
-  if (todayWeekIdx >= 0 && config.showTodayMarker) {
-    const todayCol = LABEL_COLS + 1 + todayWeekIdx;
+  if (todayDayIdx >= 0 && todayDayIdx < totalDays && config.showTodayMarker) {
+    const todayCol = LABEL_COLS + 1 + todayDayIdx;
 
-    // Add "Today" label in header
-    timelineSheet.getRange(2, todayCol)
+    // Label in header
+    timelineSheet.getRange(WEEK_ROW, todayCol)
+      .setValue('▼')
       .setFontColor('#FF5722')
       .setFontWeight('bold')
-      .setNote('Today: ' + today.toLocaleDateString());
+      .setFontSize(8)
+      .setHorizontalAlignment('center');
 
-    // Add vertical border for today
-    const todayRange = timelineSheet.getRange(HEADER_ROWS, todayCol, sortedTasks.length + 1, 1);
-    todayRange.setBorder(null, true, null, true, false, false, '#FF5722', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+    // Create vertical line image for today marker
+    const markerHeight = sortedTasks.length * TASK_ROW_HEIGHT;
+    if (markerHeight > 0) {
+      const todayMarkerBlob = createTodayMarkerShape(markerHeight);
+      timelineSheet.insertImage(todayMarkerBlob, todayCol, HEADER_ROWS + 1, DAY_COL_WIDTH / 2 - 1, 0);
+    }
   }
 
-  // === FINAL FORMATTING ===
+  // === FREEZE AND FINALIZE ===
 
-  // Freeze header rows and label columns
   timelineSheet.setFrozenRows(HEADER_ROWS);
   timelineSheet.setFrozenColumns(LABEL_COLS);
 
-  // Add outer borders
-  const fullRange = timelineSheet.getRange(1, 1, HEADER_ROWS + sortedTasks.length, LABEL_COLS + weeks.length);
-  fullRange.setBorder(true, true, true, true, null, null, '#CCCCCC', SpreadsheetApp.BorderStyle.SOLID);
-
-  // Add grid lines for week columns
-  const gridRange = timelineSheet.getRange(1, LABEL_COLS + 1, HEADER_ROWS + sortedTasks.length, weeks.length);
-  gridRange.setBorder(null, null, null, null, true, true, '#E0E0E0', SpreadsheetApp.BorderStyle.SOLID);
-
-  // Add title
-  timelineSheet.insertRowBefore(1);
-  timelineSheet.getRange(1, 1).setValue('Project Timeline')
-    .setFontSize(16)
-    .setFontWeight('bold');
-  timelineSheet.getRange(1, 2).setValue(formatDateShort(startDate) + ' - ' + formatDateShort(endDate))
-    .setFontColor('#666666');
-  timelineSheet.setRowHeight(1, 35);
-
-  // Update frozen rows to include title
-  timelineSheet.setFrozenRows(HEADER_ROWS + 1);
-
-  // Switch to timeline sheet
+  // Activate the timeline sheet
   ss.setActiveSheet(timelineSheet);
 
   SpreadsheetApp.getUi().alert('Timeline Generated',
     'Your Gantt chart has been created in the "' + TIMELINE_SHEET_NAME + '" sheet.\n\n' +
-    'You can now:\n' +
-    '• Edit cells directly to adjust the timeline\n' +
+    '• Task bars are moveable shapes - click and drag to reposition\n' +
+    '• Resize shapes by dragging their edges\n' +
     '• Use File > Download > PDF to export\n' +
-    '• Resize columns to adjust the view',
+    '• Slip portions shown with dashed outlines',
     SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+/**
+ * Creates a task bar shape as an SVG blob
+ * @param {number} width - Bar width in pixels
+ * @param {number} height - Bar height in pixels
+ * @param {string} color - Bar color (hex)
+ * @param {number} progressPercent - Progress percentage (0-100)
+ * @returns {Blob} SVG image blob
+ */
+function createTaskBarShape(width, height, color, progressPercent) {
+  const darkerColor = darkenColor(color, 0.2);
+  const progressWidth = Math.floor((progressPercent / 100) * (width - 4));
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
+    <defs>
+      <linearGradient id="barGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%" style="stop-color:${lightenColor(color, 0.2)};stop-opacity:1" />
+        <stop offset="100%" style="stop-color:${color};stop-opacity:1" />
+      </linearGradient>
+    </defs>
+    <rect x="1" y="1" width="${width-2}" height="${height-2}" rx="4" ry="4" fill="url(#barGrad)" stroke="${darkerColor}" stroke-width="1"/>
+    ${progressPercent > 0 && progressPercent < 100 ?
+      `<rect x="2" y="${height-6}" width="${progressWidth}" height="3" rx="1" ry="1" fill="${darkerColor}" opacity="0.5"/>` : ''}
+  </svg>`;
+
+  return Utilities.newBlob(svg, 'image/svg+xml', 'bar.svg');
+}
+
+/**
+ * Creates a slip bar shape (dashed outline) as an SVG blob
+ * @param {number} width - Bar width in pixels
+ * @param {number} height - Bar height in pixels
+ * @param {string} color - Bar color (hex)
+ * @returns {Blob} SVG image blob
+ */
+function createSlipBarShape(width, height, color) {
+  const lightColor = lightenColor(color, 0.6);
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
+    <rect x="1" y="1" width="${width-2}" height="${height-2}" rx="4" ry="4"
+          fill="${lightColor}" stroke="${color}" stroke-width="2" stroke-dasharray="4,3"/>
+    <rect x="${width-4}" y="2" width="3" height="${height-4}" fill="${color}"/>
+  </svg>`;
+
+  return Utilities.newBlob(svg, 'image/svg+xml', 'slip.svg');
+}
+
+/**
+ * Creates a milestone diamond shape as an SVG blob
+ * @param {string} color - Milestone color (hex)
+ * @returns {Blob} SVG image blob
+ */
+function createMilestoneShape(color) {
+  const size = 20;
+  const half = size / 2;
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">
+    <polygon points="${half},2 ${size-2},${half} ${half},${size-2} 2,${half}"
+             fill="${color}" stroke="${darkenColor(color, 0.3)}" stroke-width="1"/>
+  </svg>`;
+
+  return Utilities.newBlob(svg, 'image/svg+xml', 'milestone.svg');
+}
+
+/**
+ * Creates a today marker vertical line as an SVG blob
+ * @param {number} height - Line height in pixels
+ * @returns {Blob} SVG image blob
+ */
+function createTodayMarkerShape(height) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="3" height="${height}">
+    <line x1="1.5" y1="0" x2="1.5" y2="${height}" stroke="#FF5722" stroke-width="2" stroke-dasharray="6,4"/>
+  </svg>`;
+
+  return Utilities.newBlob(svg, 'image/svg+xml', 'today.svg');
 }
 
 /**
