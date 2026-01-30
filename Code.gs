@@ -2105,10 +2105,20 @@ function generateNativeTimeline(tasks, config, startDate, endDate) {
       return;
     }
 
-    const taskStart = new Date(task.startDate);
-    const taskEnd = new Date(task.endDate);
+    // Robust date parsing - handle both Date objects and strings
+    let taskStart, taskEnd;
+    if (task.startDate instanceof Date) {
+      taskStart = task.startDate;
+    } else {
+      taskStart = new Date(task.startDate);
+    }
+    if (task.endDate instanceof Date) {
+      taskEnd = task.endDate;
+    } else {
+      taskEnd = new Date(task.endDate);
+    }
 
-    // Validate dates are actual Date objects
+    // Validate dates
     if (isNaN(taskStart.getTime()) || isNaN(taskEnd.getTime())) {
       tasksWithoutDates++;
       Logger.log('Task "' + task.name + '" has invalid dates: start=' + task.startDate + ', end=' + task.endDate);
@@ -2116,45 +2126,57 @@ function generateNativeTimeline(tasks, config, startDate, endDate) {
     }
 
     // Calculate position in weeks (fractional for precision)
-    const startWeekFrac = (taskStart - startDate) / (1000 * 60 * 60 * 24 * 7);
-    const endWeekFrac = (taskEnd - startDate) / (1000 * 60 * 60 * 24 * 7);
+    // Use getTime() explicitly for reliable date arithmetic
+    const msPerWeek = 1000 * 60 * 60 * 24 * 7;
+    const startWeekFrac = (taskStart.getTime() - startDate.getTime()) / msPerWeek;
+    const endWeekFrac = (taskEnd.getTime() - startDate.getTime()) / msPerWeek;
 
-    // Clamp to visible range
-    const startWeek = Math.max(0, startWeekFrac);
-    const endWeek = Math.min(totalWeeks, endWeekFrac);
+    Logger.log('Task "' + task.name + '": startWeekFrac=' + startWeekFrac.toFixed(2) + ', endWeekFrac=' + endWeekFrac.toFixed(2));
 
-    if (endWeek <= startWeek) {
+    // Check if task is COMPLETELY outside visible range
+    // Task ends before visible start, or task starts after visible end
+    if (endWeekFrac <= 0 || startWeekFrac >= totalWeeks) {
       tasksOutOfRange++;
-      Logger.log('Task "' + task.name + '" out of visible range: ' + taskStart + ' to ' + taskEnd);
+      Logger.log('Task "' + task.name + '" completely outside visible range');
+      return;
+    }
+
+    // CLIP to visible range - this is the key fix!
+    // Tasks that start before visible range get clipped to start at week 0
+    // Tasks that end after visible range get clipped to end at totalWeeks
+    const clippedStartWeek = Math.max(0, startWeekFrac);
+    const clippedEndWeek = Math.min(totalWeeks, endWeekFrac);
+    const barDurationWeeks = clippedEndWeek - clippedStartWeek;
+
+    Logger.log('Task "' + task.name + '": clipped start=' + clippedStartWeek.toFixed(2) + ', end=' + clippedEndWeek.toFixed(2) + ', duration=' + barDurationWeeks.toFixed(2));
+
+    if (barDurationWeeks <= 0) {
+      tasksOutOfRange++;
       return;
     }
 
     // Calculate pixel positions
-    const startCol = LABEL_COLS + 1 + Math.floor(startWeek);
-    const offsetX = Math.round((startWeek % 1) * WEEK_COL_WIDTH);
-    const barWidthPx = Math.round((endWeek - startWeek) * WEEK_COL_WIDTH);
+    const startCol = LABEL_COLS + 1 + Math.floor(clippedStartWeek);
+    const offsetX = Math.round((clippedStartWeek % 1) * WEEK_COL_WIDTH);
+    const barWidthPx = Math.max(10, Math.round(barDurationWeeks * WEEK_COL_WIDTH)); // Min 10px
 
-    if (barWidthPx < 5) {
-      tasksOutOfRange++;
-      return;
-    }
+    Logger.log('Task "' + task.name + '": col=' + startCol + ', offsetX=' + offsetX + ', width=' + barWidthPx);
 
-    // Get or create colored rectangle image
+    // Create colored rectangle image
     const barColor = task.color || '#4A6572';
     try {
       const imageBlob = createColoredRectangleImage(barWidthPx, BAR_HEIGHT, barColor);
       const image = timelineSheet.insertImage(imageBlob, startCol, row, offsetX, BAR_TOP_OFFSET);
-
-      // Set image size explicitly
       image.setWidth(barWidthPx);
       image.setHeight(BAR_HEIGHT);
       barsCreated++;
+      Logger.log('SUCCESS: Created bar for "' + task.name + '"');
     } catch (e) {
-      Logger.log('Error creating bar for task ' + task.name + ': ' + e.message);
+      Logger.log('ERROR creating bar for "' + task.name + '": ' + e.message);
     }
   });
 
-  Logger.log('Bar creation summary: created=' + barsCreated + ', missingDates=' + tasksWithoutDates + ', outOfRange=' + tasksOutOfRange);
+  Logger.log('=== Summary: created=' + barsCreated + ', missingDates=' + tasksWithoutDates + ', outOfRange=' + tasksOutOfRange + ' ===');
 
   // === TODAY MARKER ===
 
