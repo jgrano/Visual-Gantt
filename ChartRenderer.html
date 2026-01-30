@@ -814,17 +814,39 @@
       document.getElementById('status').textContent = 'Saving to sheet...';
       document.getElementById('status').className = 'status info';
 
-      // Get canvas as JPEG with compression to avoid blob size limits (2MB max)
-      // JPEG is smaller and works better for charts with gradients
-      let dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+      // Check pixel count - Google Sheets has 1 million pixel limit
+      const totalPixels = canvas.width * canvas.height;
+      const maxPixels = 950000;  // Stay under 1 million limit
+      let sourceCanvas = canvas;
 
-      // Check approximate size (base64 is ~33% larger than binary)
+      // If too many pixels, scale down the canvas
+      if (totalPixels > maxPixels) {
+        const scale = Math.sqrt(maxPixels / totalPixels);
+        const scaledWidth = Math.floor(canvas.width * scale);
+        const scaledHeight = Math.floor(canvas.height * scale);
+
+        // Create scaled canvas
+        const scaledCanvas = document.createElement('canvas');
+        scaledCanvas.width = scaledWidth;
+        scaledCanvas.height = scaledHeight;
+        const scaledCtx = scaledCanvas.getContext('2d');
+
+        // Draw scaled image
+        scaledCtx.drawImage(canvas, 0, 0, scaledWidth, scaledHeight);
+        sourceCanvas = scaledCanvas;
+
+        document.getElementById('status').textContent = 'Scaling image for save...';
+      }
+
+      // Get canvas as JPEG with compression to avoid blob size limits (2MB max)
+      let dataUrl = sourceCanvas.toDataURL('image/jpeg', 0.90);
+
+      // Check approximate size and reduce quality if needed
       const approxSizeBytes = (dataUrl.length - 23) * 0.75;
-      const maxSizeBytes = 1.8 * 1024 * 1024;  // 1.8MB to stay under 2MB limit
+      const maxSizeBytes = 1.8 * 1024 * 1024;
 
       if (approxSizeBytes > maxSizeBytes) {
-        // Reduce quality if still too large
-        dataUrl = canvas.toDataURL('image/jpeg', 0.75);
+        dataUrl = sourceCanvas.toDataURL('image/jpeg', 0.75);
       }
 
       google.script.run
