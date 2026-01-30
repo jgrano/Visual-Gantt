@@ -186,9 +186,10 @@
     const FONT_SIZE = config.fontSize || 12;
     const HEADER_HEIGHT = 60;
 
-    // Calculate dimensions
+    // Calculate dimensions - fit the date range within configured width (no horizontal scrolling)
     const totalDays = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24));
-    const chartWidth = Math.max(config.chartWidth || 1200, totalDays * 15);
+    const configuredWidth = config.chartWidth || 1200;
+    const chartWidth = configuredWidth;  // Use configured width, don't expand
     const chartHeight = Math.max(config.chartHeight || 600, MARGIN.top + (tasks.length * ROW_HEIGHT) + MARGIN.bottom + 100);
 
     // Set canvas size
@@ -287,15 +288,16 @@
     }
 
     function drawTitle() {
+      // Use web-safe fonts that render consistently
       ctx.fillStyle = COLORS.text;
-      ctx.font = `bold 18px 'Segoe UI', sans-serif`;
+      ctx.font = 'bold 20px Arial, Helvetica, sans-serif';
       ctx.textAlign = 'left';
-      ctx.fillText('Project Timeline', MARGIN.left, 30);
+      ctx.fillText('Project Timeline', 20, 35);
 
-      ctx.font = `12px 'Segoe UI', sans-serif`;
+      ctx.font = '13px Arial, Helvetica, sans-serif';
       ctx.fillStyle = COLORS.textLight;
       const dateRange = `${formatDate(startDate)} - ${formatDate(endDate)}`;
-      ctx.fillText(dateRange, MARGIN.left, 50);
+      ctx.fillText(dateRange, 20, 55);
     }
 
     function drawGrid() {
@@ -811,43 +813,28 @@
       btn.disabled = true;
       btn.textContent = 'Saving...';
 
-      document.getElementById('status').textContent = 'Saving to sheet...';
+      document.getElementById('status').textContent = 'Preparing image...';
       document.getElementById('status').className = 'status info';
 
-      // Check pixel count - Google Sheets has 1 million pixel limit
-      const totalPixels = canvas.width * canvas.height;
-      const maxPixels = 950000;  // Stay under 1 million limit
-      let sourceCanvas = canvas;
+      // Create a new canvas at 1x resolution for saving (avoiding DPI scaling issues)
+      // Google Sheets has a 1 million pixel and 2MB limit for inserted images
+      const dpr = window.devicePixelRatio || 1;
+      const logicalWidth = canvas.width / dpr;
+      const logicalHeight = canvas.height / dpr;
 
-      // If too many pixels, scale down the canvas
-      if (totalPixels > maxPixels) {
-        const scale = Math.sqrt(maxPixels / totalPixels);
-        const scaledWidth = Math.floor(canvas.width * scale);
-        const scaledHeight = Math.floor(canvas.height * scale);
+      // Create 1x resolution canvas for export
+      const exportCanvas = document.createElement('canvas');
+      exportCanvas.width = logicalWidth;
+      exportCanvas.height = logicalHeight;
+      const exportCtx = exportCanvas.getContext('2d');
 
-        // Create scaled canvas
-        const scaledCanvas = document.createElement('canvas');
-        scaledCanvas.width = scaledWidth;
-        scaledCanvas.height = scaledHeight;
-        const scaledCtx = scaledCanvas.getContext('2d');
+      // Draw the high-DPI canvas scaled down to 1x
+      exportCtx.drawImage(canvas, 0, 0, logicalWidth, logicalHeight);
 
-        // Draw scaled image
-        scaledCtx.drawImage(canvas, 0, 0, scaledWidth, scaledHeight);
-        sourceCanvas = scaledCanvas;
+      // Get as high-quality JPEG
+      let dataUrl = exportCanvas.toDataURL('image/jpeg', 0.92);
 
-        document.getElementById('status').textContent = 'Scaling image for save...';
-      }
-
-      // Get canvas as JPEG with compression to avoid blob size limits (2MB max)
-      let dataUrl = sourceCanvas.toDataURL('image/jpeg', 0.90);
-
-      // Check approximate size and reduce quality if needed
-      const approxSizeBytes = (dataUrl.length - 23) * 0.75;
-      const maxSizeBytes = 1.8 * 1024 * 1024;
-
-      if (approxSizeBytes > maxSizeBytes) {
-        dataUrl = sourceCanvas.toDataURL('image/jpeg', 0.75);
-      }
+      document.getElementById('status').textContent = 'Saving to sheet...';
 
       google.script.run
         .withSuccessHandler(function(result) {

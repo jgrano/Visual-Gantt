@@ -126,7 +126,7 @@ const SMARTSHEET_PRIORITY_MAPPING = {
 const DEFAULT_CONFIG = {
   startDate: null,
   endDate: null,
-  swimlaneGrouping: 'Category', // 'Owner', 'Category', 'None'
+  swimlaneGrouping: 'Category', // 'Owner', 'Category', 'Project', 'None'
   colorScheme: 'priority', // 'priority', 'taskType', 'swimlane'
   showDependencies: true,
   showPercentComplete: true,
@@ -135,8 +135,8 @@ const DEFAULT_CONFIG = {
   barHeight: 24,
   barSpacing: 8,
   fontSize: 12,
-  chartWidth: 1200,
-  chartHeight: 800
+  chartWidth: 1100,  // Optimized for 3-month view without scrolling
+  chartHeight: 700
 };
 
 const PRIORITY_COLORS = {
