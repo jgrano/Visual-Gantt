@@ -1941,8 +1941,9 @@ function generateNativeTimeline(tasks, config, startDate, endDate) {
   // Prepare sorted tasks
   const sortedTasks = prepareTasksForChart(tasks, config);
 
-  // Calculate date columns (one column per day for precision)
+  // Calculate weeks (one column per week for clean grid like user's example)
   const totalDays = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24));
+  const totalWeeks = Math.ceil(totalDays / 7);
 
   // Layout constants
   const TITLE_ROW = 1;
@@ -1950,13 +1951,13 @@ function generateNativeTimeline(tasks, config, startDate, endDate) {
   const WEEK_ROW = 3;
   const HEADER_ROWS = 3;
   const LABEL_COLS = 3;   // Project, Task Name, Owner
-  const DAY_COL_WIDTH = 4;  // Pixels per day column (narrow for precision)
-  const TASK_ROW_HEIGHT = 40;
-  const BAR_HEIGHT = 22;
-  const BAR_TOP_OFFSET = 9;  // Pixels from top of row to bar
+  const WEEK_COL_WIDTH = 80;  // Pixels per week column
+  const TASK_ROW_HEIGHT = 50;
+  const BAR_HEIGHT = 30;
+  const BAR_TOP_OFFSET = 10;
 
   // Ensure sheet has enough columns and rows
-  const requiredCols = LABEL_COLS + totalDays;
+  const requiredCols = LABEL_COLS + totalWeeks;
   const requiredRows = HEADER_ROWS + sortedTasks.length + 1;
 
   const currentCols = timelineSheet.getMaxColumns();
@@ -1964,30 +1965,28 @@ function generateNativeTimeline(tasks, config, startDate, endDate) {
 
   if (currentCols < requiredCols) {
     timelineSheet.insertColumnsAfter(currentCols, requiredCols - currentCols);
-  } else if (currentCols > requiredCols + 10) {
-    // Remove excess columns to keep sheet clean
+  } else if (currentCols > requiredCols + 5) {
     timelineSheet.deleteColumns(requiredCols + 1, currentCols - requiredCols);
   }
 
   if (currentRows < requiredRows) {
     timelineSheet.insertRowsAfter(currentRows, requiredRows - currentRows);
   } else if (currentRows > requiredRows + 5) {
-    // Remove excess rows to keep sheet clean
     timelineSheet.deleteRows(requiredRows + 1, currentRows - requiredRows);
   }
 
   // Set up label column widths
   timelineSheet.setColumnWidth(1, 80);   // Project
   timelineSheet.setColumnWidth(2, 200);  // Task Name
-  timelineSheet.setColumnWidth(3, 130);  // Owner
+  timelineSheet.setColumnWidth(3, 100);  // Owner
 
-  // Set up day columns (narrow for precise positioning)
-  for (let i = 0; i < totalDays; i++) {
-    timelineSheet.setColumnWidth(LABEL_COLS + 1 + i, DAY_COL_WIDTH);
+  // Set up week columns
+  for (let i = 0; i < totalWeeks; i++) {
+    timelineSheet.setColumnWidth(LABEL_COLS + 1 + i, WEEK_COL_WIDTH);
   }
 
   // Set row heights
-  timelineSheet.setRowHeight(TITLE_ROW, 40);
+  timelineSheet.setRowHeight(TITLE_ROW, 35);
   timelineSheet.setRowHeight(MONTH_ROW, 22);
   timelineSheet.setRowHeight(WEEK_ROW, 22);
 
@@ -1999,40 +1998,38 @@ function generateNativeTimeline(tasks, config, startDate, endDate) {
 
   // Title row
   timelineSheet.getRange(TITLE_ROW, 1).setValue('Project Timeline')
-    .setFontSize(18)
+    .setFontSize(16)
     .setFontWeight('bold');
   timelineSheet.getRange(TITLE_ROW, 2).setValue(formatDateShort(startDate) + ' - ' + formatDateShort(endDate))
     .setFontColor('#666666')
-    .setFontSize(11);
+    .setFontSize(10);
 
-  // Build month and week headers
+  // Build month headers (group weeks by month)
   let currentMonth = '';
   let monthStartCol = LABEL_COLS + 1;
   const monthRanges = [];
 
-  for (let i = 0; i < totalDays; i++) {
-    const date = new Date(startDate);
-    date.setDate(date.getDate() + i);
-    const monthLabel = date.toLocaleString('default', { month: 'short', year: 'numeric' });
+  for (let w = 0; w < totalWeeks; w++) {
+    const weekStart = new Date(startDate);
+    weekStart.setDate(weekStart.getDate() + w * 7);
+    const monthLabel = weekStart.toLocaleString('default', { month: 'short', year: 'numeric' });
 
     if (monthLabel !== currentMonth) {
       if (currentMonth !== '') {
-        monthRanges.push({ start: monthStartCol, end: LABEL_COLS + i, month: currentMonth });
+        monthRanges.push({ start: monthStartCol, end: LABEL_COLS + w, month: currentMonth });
       }
       currentMonth = monthLabel;
-      monthStartCol = LABEL_COLS + 1 + i;
+      monthStartCol = LABEL_COLS + 1 + w;
     }
 
-    // Week labels (every 7 days on Monday)
-    if (date.getDay() === 1) { // Monday
-      timelineSheet.getRange(WEEK_ROW, LABEL_COLS + 1 + i)
-        .setValue('W' + getWeekNumber(date))
-        .setFontSize(7)
-        .setHorizontalAlignment('left');
-    }
+    // Week number label
+    timelineSheet.getRange(WEEK_ROW, LABEL_COLS + 1 + w)
+      .setValue('W' + getWeekNumber(weekStart))
+      .setFontSize(9)
+      .setHorizontalAlignment('center');
   }
   // Add last month
-  monthRanges.push({ start: monthStartCol, end: LABEL_COLS + totalDays, month: currentMonth });
+  monthRanges.push({ start: monthStartCol, end: LABEL_COLS + totalWeeks, month: currentMonth });
 
   // Apply month headers
   monthRanges.forEach(range => {
@@ -2050,9 +2047,9 @@ function generateNativeTimeline(tasks, config, startDate, endDate) {
   });
 
   // Style week row
-  timelineSheet.getRange(WEEK_ROW, LABEL_COLS + 1, 1, totalDays).setBackground('#E8F0FE');
+  timelineSheet.getRange(WEEK_ROW, LABEL_COLS + 1, 1, totalWeeks).setBackground('#E8F0FE');
 
-  // Column headers
+  // Column headers for labels
   timelineSheet.getRange(MONTH_ROW, 1).setValue('Project').setFontWeight('bold').setBackground('#F8F9FA');
   timelineSheet.getRange(MONTH_ROW, 2).setValue('Task').setFontWeight('bold').setBackground('#F8F9FA');
   timelineSheet.getRange(MONTH_ROW, 3).setValue('Owner').setFontWeight('bold').setBackground('#F8F9FA');
@@ -2062,40 +2059,37 @@ function generateNativeTimeline(tasks, config, startDate, endDate) {
 
   sortedTasks.forEach((task, taskIdx) => {
     const row = HEADER_ROWS + 1 + taskIdx;
-
-    // Task labels
     timelineSheet.getRange(row, 1).setValue(task.project || '').setFontSize(9);
     timelineSheet.getRange(row, 2).setValue(task.name).setFontWeight('bold').setFontSize(10);
     timelineSheet.getRange(row, 3).setValue(task.owner || '').setFontColor('#666666').setFontSize(9);
 
-    // Alternate row background
     if (taskIdx % 2 === 1) {
-      timelineSheet.getRange(row, 1, 1, LABEL_COLS + totalDays).setBackground('#FAFAFA');
+      timelineSheet.getRange(row, 1, 1, LABEL_COLS + totalWeeks).setBackground('#FAFAFA');
     }
   });
 
   // === ADD GRID LINES ===
 
-  // Vertical lines for weeks (every 7 columns)
-  for (let i = 7; i < totalDays; i += 7) {
+  // Light vertical lines for each week column
+  for (let i = 0; i < totalWeeks; i++) {
     timelineSheet.getRange(HEADER_ROWS, LABEL_COLS + 1 + i, sortedTasks.length + 1, 1)
       .setBorder(null, true, null, null, false, false, '#E0E0E0', SpreadsheetApp.BorderStyle.SOLID);
   }
 
   // Horizontal lines between tasks
   for (let i = 0; i <= sortedTasks.length; i++) {
-    timelineSheet.getRange(HEADER_ROWS + i, 1, 1, LABEL_COLS + totalDays)
+    timelineSheet.getRange(HEADER_ROWS + i, 1, 1, LABEL_COLS + totalWeeks)
       .setBorder(null, null, true, null, false, false, '#E8E8E8', SpreadsheetApp.BorderStyle.SOLID);
   }
 
-  // Border around label columns
+  // Border after label columns
   timelineSheet.getRange(MONTH_ROW, LABEL_COLS, HEADER_ROWS + sortedTasks.length - 1, 1)
     .setBorder(null, null, null, true, false, false, '#CCCCCC', SpreadsheetApp.BorderStyle.SOLID);
 
-  // Flush changes before creating bars
+  // Flush before inserting images
   SpreadsheetApp.flush();
 
-  // === CREATE TASK BARS (using merged cells with backgrounds) ===
+  // === CREATE FLOATING TASK BAR IMAGES ===
 
   sortedTasks.forEach((task, taskIdx) => {
     if (!task.startDate || !task.endDate) return;
@@ -2103,108 +2097,63 @@ function generateNativeTimeline(tasks, config, startDate, endDate) {
     const row = HEADER_ROWS + 1 + taskIdx;
     const taskStart = new Date(task.startDate);
     const taskEnd = new Date(task.endDate);
-    const origEnd = task.originalEndDate ? new Date(task.originalEndDate) : null;
-    const hasSlip = origEnd && taskEnd > origEnd;
 
-    // Calculate day indices
-    const startDayIdx = Math.max(0, Math.floor((taskStart - startDate) / (1000 * 60 * 60 * 24)));
-    const endDayIdx = Math.min(totalDays - 1, Math.floor((taskEnd - startDate) / (1000 * 60 * 60 * 24)));
-    const origEndDayIdx = origEnd ? Math.min(totalDays - 1, Math.floor((origEnd - startDate) / (1000 * 60 * 60 * 24))) : endDayIdx;
+    // Calculate position in weeks (fractional for precision)
+    const startWeekFrac = (taskStart - startDate) / (1000 * 60 * 60 * 24 * 7);
+    const endWeekFrac = (taskEnd - startDate) / (1000 * 60 * 60 * 24 * 7);
 
-    const barEndIdx = hasSlip ? origEndDayIdx : endDayIdx;
+    // Clamp to visible range
+    const startWeek = Math.max(0, startWeekFrac);
+    const endWeek = Math.min(totalWeeks, endWeekFrac);
 
-    // Handle milestones (diamond character)
-    if (task.taskType === 'Milestone') {
-      if (startDayIdx >= 0 && startDayIdx < totalDays) {
-        const milestoneCol = LABEL_COLS + 1 + startDayIdx;
-        // Merge a few columns for visibility
-        const mergeWidth = Math.min(5, totalDays - startDayIdx);
-        if (mergeWidth > 1) {
-          timelineSheet.getRange(row, milestoneCol, 1, mergeWidth).merge();
-        }
-        timelineSheet.getRange(row, milestoneCol)
-          .setValue('◆')
-          .setHorizontalAlignment('left')
-          .setVerticalAlignment('middle')
-          .setFontColor(task.color || '#9C27B0')
-          .setFontSize(14)
-          .setFontWeight('bold');
-      }
-      return;
-    }
+    if (endWeek <= startWeek) return;
 
-    // Create main task bar (merged cells with background)
-    const startCol = LABEL_COLS + 1 + startDayIdx;
-    const numCols = barEndIdx - startDayIdx + 1;
+    // Calculate pixel positions
+    const startCol = LABEL_COLS + 1 + Math.floor(startWeek);
+    const offsetX = Math.round((startWeek % 1) * WEEK_COL_WIDTH);
+    const barWidthPx = Math.round((endWeek - startWeek) * WEEK_COL_WIDTH);
 
-    if (numCols > 0) {
-      const barRange = timelineSheet.getRange(row, startCol, 1, numCols);
-      const barColor = task.color || '#4285F4';
+    if (barWidthPx < 5) return; // Skip very small bars
 
-      // Merge cells for the bar
-      if (numCols > 1) {
-        barRange.merge();
-      }
+    // Get or create colored rectangle image
+    const barColor = task.color || '#4A6572';
+    try {
+      const imageBlob = createColoredRectangleImage(barWidthPx, BAR_HEIGHT, barColor);
+      const image = timelineSheet.insertImage(imageBlob, startCol, row, offsetX, BAR_TOP_OFFSET);
 
-      // Style the bar with solid background and border
-      barRange.setBackground(barColor)
-        .setBorder(true, true, true, true, false, false, darkenColor(barColor, 0.3), SpreadsheetApp.BorderStyle.SOLID)
-        .setVerticalAlignment('middle')
-        .setHorizontalAlignment('center');
-
-      // Show percentage text if applicable
-      if (config.showPercentComplete && task.percentComplete > 0) {
-        barRange.setValue(task.percentComplete + '%')
-          .setFontColor('white')
-          .setFontSize(8)
-          .setFontWeight('bold');
-      }
-    }
-
-    // Create slip portion (lighter color with dashed border)
-    if (hasSlip && endDayIdx > origEndDayIdx) {
-      const slipStartCol = LABEL_COLS + 1 + origEndDayIdx + 1;
-      const slipNumCols = endDayIdx - origEndDayIdx;
-
-      if (slipNumCols > 0) {
-        const slipRange = timelineSheet.getRange(row, slipStartCol, 1, slipNumCols);
-        const slipColor = task.color || '#4285F4';
-
-        if (slipNumCols > 1) {
-          slipRange.merge();
-        }
-
-        // Slip bar - lighter background with dashed border
-        slipRange.setBackground(lightenColor(slipColor, 0.6))
-          .setBorder(true, true, true, true, false, false, slipColor, SpreadsheetApp.BorderStyle.DASHED)
-          .setVerticalAlignment('middle');
-
-        // Add termination marker (thick right border)
-        timelineSheet.getRange(row, LABEL_COLS + 1 + endDayIdx)
-          .setBorder(null, null, null, true, false, false, slipColor, SpreadsheetApp.BorderStyle.SOLID_THICK);
-      }
+      // Set image size explicitly
+      image.setWidth(barWidthPx);
+      image.setHeight(BAR_HEIGHT);
+    } catch (e) {
+      Logger.log('Error creating bar for task ' + task.name + ': ' + e.message);
     }
   });
 
   // === TODAY MARKER ===
 
   const today = new Date();
-  const todayDayIdx = Math.floor((today - startDate) / (1000 * 60 * 60 * 24));
+  const todayWeekFrac = (today - startDate) / (1000 * 60 * 60 * 24 * 7);
 
-  if (todayDayIdx >= 0 && todayDayIdx < totalDays && config.showTodayMarker) {
-    const todayCol = LABEL_COLS + 1 + todayDayIdx;
+  if (todayWeekFrac >= 0 && todayWeekFrac < totalWeeks && config.showTodayMarker) {
+    const todayCol = LABEL_COLS + 1 + Math.floor(todayWeekFrac);
+    const todayOffsetX = Math.round((todayWeekFrac % 1) * WEEK_COL_WIDTH);
 
-    // Label in header
-    timelineSheet.getRange(WEEK_ROW, todayCol)
-      .setValue('▼')
-      .setFontColor('#FF5722')
-      .setFontWeight('bold')
-      .setFontSize(8)
-      .setHorizontalAlignment('center');
-
-    // Vertical line through all task rows (using column border)
-    timelineSheet.getRange(HEADER_ROWS + 1, todayCol, sortedTasks.length, 1)
-      .setBorder(null, true, null, true, false, false, '#FF5722', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+    // Create today line image
+    const markerHeight = sortedTasks.length * TASK_ROW_HEIGHT;
+    if (markerHeight > 0) {
+      try {
+        const todayBlob = createTodayLineImage(markerHeight);
+        const todayImg = timelineSheet.insertImage(todayBlob, todayCol, HEADER_ROWS + 1, todayOffsetX, 0);
+        todayImg.setWidth(3);
+        todayImg.setHeight(markerHeight);
+      } catch (e) {
+        // Fall back to border-based marker
+        timelineSheet.getRange(WEEK_ROW, todayCol)
+          .setValue('▼')
+          .setFontColor('#FF5722')
+          .setFontSize(8);
+      }
+    }
   }
 
   // === FREEZE AND FINALIZE ===
@@ -2212,15 +2161,78 @@ function generateNativeTimeline(tasks, config, startDate, endDate) {
   timelineSheet.setFrozenRows(HEADER_ROWS);
   timelineSheet.setFrozenColumns(LABEL_COLS);
 
-  // Activate the timeline sheet
   ss.setActiveSheet(timelineSheet);
 
   SpreadsheetApp.getUi().alert('Timeline Generated',
     'Your Gantt chart has been created in the "' + TIMELINE_SHEET_NAME + '" sheet.\n\n' +
-    '• Task bars use precise day-level positioning\n' +
-    '• Slip portions shown with dashed borders\n' +
+    '• Task bars are floating shapes - click to select, drag to move\n' +
+    '• Drag corners/edges to resize bars\n' +
+    '• Each column = 1 week\n' +
     '• Use File > Download > PDF to export',
     SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+/**
+ * Creates a colored rectangle PNG image
+ * Uses a simple BMP format which is easier to generate than PNG
+ */
+function createColoredRectangleImage(width, height, hexColor) {
+  // Parse hex color
+  const color = hexColor.replace('#', '');
+  const r = parseInt(color.substr(0, 2), 16);
+  const g = parseInt(color.substr(2, 2), 16);
+  const b = parseInt(color.substr(4, 2), 16);
+
+  // Create a simple BMP image (24-bit, no compression)
+  // BMP is simpler than PNG and supported by Google Sheets
+
+  const rowSize = Math.ceil((width * 3) / 4) * 4; // Rows padded to 4-byte boundary
+  const pixelDataSize = rowSize * height;
+  const fileSize = 54 + pixelDataSize; // 54 bytes header + pixel data
+
+  const bmp = [];
+
+  // BMP File Header (14 bytes)
+  bmp.push(0x42, 0x4D); // 'BM' signature
+  bmp.push(fileSize & 0xFF, (fileSize >> 8) & 0xFF, (fileSize >> 16) & 0xFF, (fileSize >> 24) & 0xFF); // File size
+  bmp.push(0, 0, 0, 0); // Reserved
+  bmp.push(54, 0, 0, 0); // Pixel data offset (54 bytes)
+
+  // DIB Header (BITMAPINFOHEADER - 40 bytes)
+  bmp.push(40, 0, 0, 0); // Header size
+  bmp.push(width & 0xFF, (width >> 8) & 0xFF, (width >> 16) & 0xFF, (width >> 24) & 0xFF); // Width
+  bmp.push(height & 0xFF, (height >> 8) & 0xFF, (height >> 16) & 0xFF, (height >> 24) & 0xFF); // Height
+  bmp.push(1, 0); // Color planes (1)
+  bmp.push(24, 0); // Bits per pixel (24)
+  bmp.push(0, 0, 0, 0); // Compression (none)
+  bmp.push(pixelDataSize & 0xFF, (pixelDataSize >> 8) & 0xFF, (pixelDataSize >> 16) & 0xFF, (pixelDataSize >> 24) & 0xFF);
+  bmp.push(0x13, 0x0B, 0, 0); // Horizontal resolution (2835 pixels/meter)
+  bmp.push(0x13, 0x0B, 0, 0); // Vertical resolution
+  bmp.push(0, 0, 0, 0); // Colors in palette
+  bmp.push(0, 0, 0, 0); // Important colors
+
+  // Pixel data (bottom-up, BGR format)
+  const padding = rowSize - (width * 3);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      bmp.push(b, g, r); // BGR order for BMP
+    }
+    // Add padding bytes
+    for (let p = 0; p < padding; p++) {
+      bmp.push(0);
+    }
+  }
+
+  // Convert to byte array and create blob
+  const byteArray = new Uint8Array(bmp);
+  return Utilities.newBlob(byteArray, 'image/bmp', 'bar.bmp');
+}
+
+/**
+ * Creates a today marker line image (red vertical line)
+ */
+function createTodayLineImage(height) {
+  return createColoredRectangleImage(3, height, '#FF5722');
 }
 
 /**
