@@ -666,42 +666,55 @@
     }
 
     function drawTaskLabels() {
+      const PROJECT_COL_WIDTH = 80;  // Width for Project column
+      const taskNameX = PROJECT_COL_WIDTH + 10;  // Start of task name column
+
       ctx.fillStyle = '#FAFAFA';
       ctx.fillRect(0, chartArea.y, MARGIN.left - 10, tasks.length * ROW_HEIGHT);
 
+      // Draw column header separator
+      ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(PROJECT_COL_WIDTH, chartArea.y);
+      ctx.lineTo(PROJECT_COL_WIDTH, chartArea.y + (tasks.length * ROW_HEIGHT));
+      ctx.stroke();
+
       tasks.forEach((task, index) => {
         const y = taskToY(index) + BAR_HEIGHT / 2 + 4;
-        const x = task.isSubtask ? 45 : 30;
 
-        // Task name
+        // Project column (left side)
+        if (task.project) {
+          ctx.fillStyle = COLORS.text;
+          ctx.font = `bold ${FONT_SIZE - 1}px 'Segoe UI', sans-serif`;
+          ctx.textAlign = 'left';
+          const projectDisplay = truncateText(task.project, PROJECT_COL_WIDTH - 15);
+          ctx.fillText(projectDisplay, 8, y);
+        }
+
+        // Task name column
+        const nameX = task.isSubtask ? taskNameX + 15 : taskNameX;
         ctx.fillStyle = COLORS.text;
         ctx.font = `${task.isSubtask ? '' : 'bold '}${FONT_SIZE}px 'Segoe UI', sans-serif`;
         ctx.textAlign = 'left';
 
-        const maxWidth = MARGIN.left - x - 20;
-        const displayName = truncateText(task.name, maxWidth);
-        ctx.fillText(displayName, x, y);
+        const maxNameWidth = MARGIN.left - nameX - 15;
+        const displayName = truncateText(task.name, maxNameWidth);
+        ctx.fillText(displayName, nameX, y);
 
-        // Owner and Project (if space permits)
-        if (!task.isSubtask) {
+        // Owner (below task name, if space permits)
+        if (task.owner && !task.isSubtask) {
           ctx.font = `${FONT_SIZE - 2}px 'Segoe UI', sans-serif`;
-          const detailY = y + 12;
+          const ownerY = y + 12;
 
-          if (detailY < taskToY(index + 1)) {
-            // Build detail string: "Owner" or "Owner | Project" or just "Project"
-            let detailParts = [];
-            if (task.owner) detailParts.push(task.owner);
-            if (task.project) detailParts.push(task.project);
-
-            if (detailParts.length > 0) {
-              ctx.fillStyle = COLORS.textLight;
-              ctx.fillText(detailParts.join(' · '), x, detailY);
-            }
+          if (ownerY < taskToY(index + 1)) {
+            ctx.fillStyle = COLORS.textLight;
+            ctx.fillText(task.owner, nameX, ownerY);
           }
         }
       });
 
-      // Separator line
+      // Separator line (right edge of label area)
       ctx.strokeStyle = COLORS.grid;
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -801,8 +814,18 @@
       document.getElementById('status').textContent = 'Saving to sheet...';
       document.getElementById('status').className = 'status info';
 
-      // Get canvas as base64
-      const dataUrl = canvas.toDataURL('image/png');
+      // Get canvas as JPEG with compression to avoid blob size limits (2MB max)
+      // JPEG is smaller and works better for charts with gradients
+      let dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+
+      // Check approximate size (base64 is ~33% larger than binary)
+      const approxSizeBytes = (dataUrl.length - 23) * 0.75;
+      const maxSizeBytes = 1.8 * 1024 * 1024;  // 1.8MB to stay under 2MB limit
+
+      if (approxSizeBytes > maxSizeBytes) {
+        // Reduce quality if still too large
+        dataUrl = canvas.toDataURL('image/jpeg', 0.75);
+      }
 
       google.script.run
         .withSuccessHandler(function(result) {

@@ -1891,18 +1891,19 @@ function generateTimeline() {
   const config = getConfig();
 
   // Calculate date range if not specified
+  // Default: Current date - 1 month to Current date + 2 months
   let startDate = config.startDate ? new Date(config.startDate) : null;
   let endDate = config.endDate ? new Date(config.endDate) : null;
 
   if (!startDate || !endDate) {
-    const dates = tasks.flatMap(t => [t.startDate, t.endDate]).filter(d => d);
+    const today = new Date();
     if (!startDate) {
-      startDate = new Date(Math.min(...dates));
-      startDate.setDate(startDate.getDate() - 7); // Add padding
+      startDate = new Date(today);
+      startDate.setMonth(startDate.getMonth() - 1);  // 1 month before today
     }
     if (!endDate) {
-      endDate = new Date(Math.max(...dates));
-      endDate.setDate(endDate.getDate() + 7); // Add padding
+      endDate = new Date(today);
+      endDate.setMonth(endDate.getMonth() + 2);  // 2 months after today
     }
   }
 
@@ -2042,14 +2043,23 @@ function insertChartImage(imageBlob) {
  */
 function saveChartToSheet(base64Data) {
   try {
-    // Remove data URL prefix if present
-    const base64Content = base64Data.replace(/^data:image\/png;base64,/, '');
+    // Detect image type and remove data URL prefix
+    let mimeType = 'image/png';
+    let filename = 'gantt_chart.png';
+
+    if (base64Data.startsWith('data:image/jpeg')) {
+      mimeType = 'image/jpeg';
+      filename = 'gantt_chart.jpg';
+    }
+
+    // Remove data URL prefix (handles both png and jpeg)
+    const base64Content = base64Data.replace(/^data:image\/(png|jpeg);base64,/, '');
 
     // Create blob from base64
     const blob = Utilities.newBlob(
       Utilities.base64Decode(base64Content),
-      'image/png',
-      'gantt_chart.png'
+      mimeType,
+      filename
     );
 
     // Insert into sheet
@@ -2122,18 +2132,19 @@ function getExportData() {
   }
 
   // Calculate date range
+  // Default: Current date - 1 month to Current date + 2 months
   let startDate = config.startDate ? new Date(config.startDate) : null;
   let endDate = config.endDate ? new Date(config.endDate) : null;
 
   if (!startDate || !endDate) {
-    const dates = tasks.flatMap(t => [t.startDate, t.endDate]).filter(d => d);
+    const today = new Date();
     if (!startDate) {
-      startDate = new Date(Math.min(...dates));
-      startDate.setDate(startDate.getDate() - 7);
+      startDate = new Date(today);
+      startDate.setMonth(startDate.getMonth() - 1);  // 1 month before today
     }
     if (!endDate) {
-      endDate = new Date(Math.max(...dates));
-      endDate.setDate(endDate.getDate() + 7);
+      endDate = new Date(today);
+      endDate.setMonth(endDate.getMonth() + 2);  // 2 months after today
     }
   }
 
