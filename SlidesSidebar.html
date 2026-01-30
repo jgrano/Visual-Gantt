@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    body {
+      font-family: 'Google Sans', Arial, sans-serif;
+      margin: 0;
+      padding: 16px;
+      background-color: #f8f9fa;
+    }
+
+    h2 {
+      color: #202124;
+      font-size: 18px;
+      font-weight: 500;
+      margin: 0 0 16px 0;
+    }
+
+    h3 {
+      color: #5f6368;
+      font-size: 14px;
+      font-weight: 500;
+      margin: 20px 0 8px 0;
+    }
+
+    .section {
+      background: white;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+    }
+
+    .button {
+      display: block;
+      width: 100%;
+      padding: 12px;
+      margin-bottom: 8px;
+      border: none;
+      border-radius: 4px;
+      background-color: #1a73e8;
+      color: white;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      text-align: center;
+      transition: background-color 0.2s;
+    }
+
+    .button:hover {
+      background-color: #1765cc;
+    }
+
+    .button.secondary {
+      background-color: #f1f3f4;
+      color: #202124;
+    }
+
+    .button.secondary:hover {
+      background-color: #e8eaed;
+    }
+
+    .button:disabled {
+      background-color: #dadce0;
+      color: #80868b;
+      cursor: not-allowed;
+    }
+
+    .selected-project {
+      background-color: #e8f0fe;
+      padding: 12px;
+      border-radius: 4px;
+      margin-bottom: 12px;
+      font-size: 13px;
+    }
+
+    .selected-project strong {
+      display: block;
+      color: #1a73e8;
+      margin-bottom: 4px;
+    }
+
+    .status {
+      padding: 8px;
+      margin-top: 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      display: none;
+    }
+
+    .status.success {
+      background-color: #e6f4ea;
+      color: #1e8e3e;
+      display: block;
+    }
+
+    .status.error {
+      background-color: #fce8e6;
+      color: #c5221f;
+      display: block;
+    }
+
+    .approach-card {
+      background-color: #f8f9fa;
+      border: 1px solid #dadce0;
+      border-radius: 4px;
+      padding: 12px;
+      margin-bottom: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .approach-card:hover {
+      background-color: #e8eaed;
+      border-color: #1a73e8;
+    }
+
+    .approach-card.selected {
+      background-color: #e8f0fe;
+      border-color: #1a73e8;
+    }
+
+    .approach-card h4 {
+      margin: 0 0 4px 0;
+      font-size: 14px;
+      font-weight: 500;
+      color: #202124;
+    }
+
+    .approach-card p {
+      margin: 0;
+      font-size: 12px;
+      color: #5f6368;
+    }
+
+    .loader {
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid #1a73e8;
+      border-radius: 50%;
+      width: 24px;
+      height: 24px;
+      animation: spin 1s linear infinite;
+      margin: 12px auto;
+      display: none;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .link {
+      color: #1a73e8;
+      text-decoration: none;
+      font-size: 13px;
+      display: block;
+      margin-top: 8px;
+    }
+
+    .link:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <h2>Visual Gantt</h2>
+
+  <!-- Project Selection Section -->
+  <div class="section">
+    <h3>Select Project</h3>
+    <div id="selectedProjectInfo" class="selected-project" style="display: none;">
+      <strong id="projectName"></strong>
+      <span id="projectDetails"></span>
+    </div>
+    <button class="button secondary" onclick="browseProjects()">Browse Projects</button>
+    <button class="button secondary" onclick="connectToSheet()">Connect to Sheet</button>
+  </div>
+
+  <!-- Insert Approach Section -->
+  <div class="section">
+    <h3>Choose Insert Method</h3>
+
+    <div class="approach-card" id="approach1" onclick="selectApproach(1)">
+      <h4>📸 Insert as Image</h4>
+      <p>High-quality static image. Best for presentations.</p>
+    </div>
+
+    <div class="approach-card" id="approach2" onclick="selectApproach(2)">
+      <h4>🔗 Link to Sheet</h4>
+      <p>Auto-updating from source. Click refresh to update.</p>
+    </div>
+
+    <div class="approach-card" id="approach3" onclick="selectApproach(3)">
+      <h4>✨ Native Shapes</h4>
+      <p>Fully editable and animatable. Each task is a shape.</p>
+    </div>
+
+    <button class="button" id="insertButton" onclick="insertTimeline()" disabled>Insert Timeline</button>
+    <div class="loader" id="loader"></div>
+    <div class="status" id="status"></div>
+  </div>
+
+  <!-- Additional Actions Section -->
+  <div class="section">
+    <h3>Actions</h3>
+    <button class="button secondary" onclick="refreshLinkedCharts()">Refresh Linked Charts</button>
+    <button class="button secondary" onclick="openProjectsFolder()">Open Projects Folder</button>
+    <a href="#" class="link" onclick="showHelp(); return false;">Help & Documentation</a>
+  </div>
+
+  <script>
+    let selectedProjectId = null;
+    let selectedApproach = null;
+
+    // Load initial state
+    window.onload = function() {
+      google.script.run
+        .withSuccessHandler(onProjectLoaded)
+        .getSelectedProjectId();
+    };
+
+    function onProjectLoaded(projectId) {
+      if (projectId) {
+        selectedProjectId = projectId;
+        // Load project details
+        google.script.run
+          .withSuccessHandler(displayProjectInfo)
+          .loadProjectFromDrive(projectId);
+      }
+    }
+
+    function displayProjectInfo(projectData) {
+      if (projectData) {
+        document.getElementById('selectedProjectInfo').style.display = 'block';
+        document.getElementById('projectName').textContent = projectData.name || 'Untitled Project';
+        document.getElementById('projectDetails').textContent =
+          projectData.tasks.length + ' tasks';
+        updateInsertButton();
+      }
+    }
+
+    function browseProjects() {
+      google.script.run.showProjectPicker();
+    }
+
+    function connectToSheet() {
+      google.script.run.showSheetPicker();
+    }
+
+    function selectApproach(approach) {
+      // Deselect all
+      document.getElementById('approach1').classList.remove('selected');
+      document.getElementById('approach2').classList.remove('selected');
+      document.getElementById('approach3').classList.remove('selected');
+
+      // Select clicked
+      document.getElementById('approach' + approach).classList.add('selected');
+      selectedApproach = approach;
+
+      updateInsertButton();
+    }
+
+    function updateInsertButton() {
+      const insertButton = document.getElementById('insertButton');
+      const hasProject = selectedProjectId !== null;
+      const hasApproach = selectedApproach !== null;
+
+      insertButton.disabled = !(hasProject && hasApproach);
+    }
+
+    function insertTimeline() {
+      if (!selectedProjectId || !selectedApproach) {
+        showStatus('Please select a project and insertion method', 'error');
+        return;
+      }
+
+      // Show loader
+      document.getElementById('loader').style.display = 'block';
+      document.getElementById('status').style.display = 'none';
+      document.getElementById('insertButton').disabled = true;
+
+      // Call appropriate insertion method
+      let insertFunction;
+      if (selectedApproach === 1) {
+        insertFunction = 'insertTimelineAsImage';
+      } else if (selectedApproach === 2) {
+        insertFunction = 'insertLinkedSheetChart';
+      } else if (selectedApproach === 3) {
+        insertFunction = 'insertTimelineAsShapes';
+      }
+
+      google.script.run
+        .withSuccessHandler(onInsertSuccess)
+        .withFailureHandler(onInsertError)
+        [insertFunction]();
+    }
+
+    function onInsertSuccess(result) {
+      document.getElementById('loader').style.display = 'none';
+      document.getElementById('insertButton').disabled = false;
+
+      if (result.success) {
+        showStatus('✓ ' + result.message, 'success');
+      } else {
+        showStatus('Error: ' + result.message, 'error');
+      }
+    }
+
+    function onInsertError(error) {
+      document.getElementById('loader').style.display = 'none';
+      document.getElementById('insertButton').disabled = false;
+      showStatus('Error: ' + error.message, 'error');
+    }
+
+    function showStatus(message, type) {
+      const status = document.getElementById('status');
+      status.textContent = message;
+      status.className = 'status ' + type;
+      status.style.display = 'block';
+
+      // Auto-hide success messages after 5 seconds
+      if (type === 'success') {
+        setTimeout(() => {
+          status.style.display = 'none';
+        }, 5000);
+      }
+    }
+
+    function refreshLinkedCharts() {
+      document.getElementById('loader').style.display = 'block';
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          document.getElementById('loader').style.display = 'none';
+          if (result.success) {
+            showStatus('✓ ' + result.message, 'success');
+          } else {
+            showStatus('Error: ' + result.message, 'error');
+          }
+        })
+        .withFailureHandler(function(error) {
+          document.getElementById('loader').style.display = 'none';
+          showStatus('Error: ' + error.message, 'error');
+        })
+        .refreshLinkedCharts();
+    }
+
+    function openProjectsFolder() {
+      google.script.run
+        .withSuccessHandler(function(result) {
+          if (result.success) {
+            showStatus('✓ Opening projects folder...', 'success');
+          } else {
+            showStatus('Error: ' + result.message, 'error');
+          }
+        })
+        .openProjectsFolder();
+    }
+
+    function showHelp() {
+      google.script.run.showSlidesHelp();
+    }
+
+    // Allow external refresh of project info (called from ProjectSelector)
+    function refreshProjectInfo(projectId) {
+      selectedProjectId = projectId;
+      google.script.run
+        .withSuccessHandler(displayProjectInfo)
+        .loadProjectFromDrive(projectId);
+    }
+  </script>
+</body>
+</html>

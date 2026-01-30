@@ -5,6 +5,7 @@
   "runtimeVersion": "V8",
   "oauthScopes": [
     "https://www.googleapis.com/auth/spreadsheets.currentonly",
+    "https://www.googleapis.com/auth/presentations",
     "https://www.googleapis.com/auth/script.container.ui",
     "https://www.googleapis.com/auth/drive.file",
     "https://www.googleapis.com/auth/script.external_request"
@@ -39,6 +40,12 @@
     "sheets": {
       "onFileScopeGrantedTrigger": {
         "runFunction": "onFileScopeGranted"
+      }
+    },
+    "slides": {
+      "homepageTrigger": {
+        "runFunction": "onSlidesHomepage",
+        "enabled": true
       }
     }
   }

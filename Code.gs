@@ -527,12 +527,21 @@ function onOpen(e) {
     .addItem('Migrate Settings to Drive', 'showMigrationDialog')
     .addItem('Open Settings Folder', 'openSettingsFolder');
 
+  // Create Projects submenu for Drive storage
+  const projectsMenu = ui.createMenu('Projects')
+    .addItem('Export to Drive', 'exportSheetToProject')
+    .addItem('Import from Drive', 'showImportProjectDialog')
+    .addSeparator()
+    .addItem('Browse Projects', 'showProjectBrowser')
+    .addItem('Open Projects Folder', 'openProjectsFolder');
+
   ui.createMenu('Visual Gantt')
     .addItem('Generate Timeline', 'generateTimeline')
     .addItem('Refresh Timeline', 'refreshTimeline')
     .addSeparator()
     .addItem('Configure Settings', 'showConfigDialog')
     .addSeparator()
+    .addSubMenu(projectsMenu)
     .addSubMenu(jiraMenu)
     .addSubMenu(smartsheetMenu)
     .addSeparator()
@@ -4846,4 +4855,32 @@ function showSmartsheetSyncStatus() {
     `Modified (pending push): ${modifiedCount}`,
     ui.ButtonSet.OK
   );
+}
+
+// ============================================================================
+// SHEETS MENU HELPERS FOR DRIVE PROJECTS
+// ============================================================================
+
+/**
+ * Shows dialog to import a project from Drive
+ */
+function showImportProjectDialog() {
+  const html = HtmlService.createHtmlOutputFromFile('ProjectSelector')
+    .setWidth(500)
+    .setHeight(600)
+    .setTitle('Import Project from Drive');
+
+  SpreadsheetApp.getUi().showModalDialog(html, 'Import Project');
+}
+
+/**
+ * Shows dialog to browse projects in Drive
+ */
+function showProjectBrowser() {
+  const html = HtmlService.createHtmlOutputFromFile('ProjectSelector')
+    .setWidth(500)
+    .setHeight(600)
+    .setTitle('Browse Projects');
+
+  SpreadsheetApp.getUi().showModalDialog(html, 'Browse Projects');
 }
