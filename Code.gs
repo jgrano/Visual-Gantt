@@ -432,6 +432,61 @@ function showAuthorizationDiagnostics() {
  * Creates the add-on menu when the spreadsheet opens
  * Handles both full and limited authorization modes
  */
+/**
+ * TEST: Simple test to verify image insertion works
+ */
+function testInsertShape() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getActiveSheet();
+  const ui = SpreadsheetApp.getUi();
+
+  let results = [];
+
+  // Test 1: Try inserting from a public URL
+  try {
+    const url = 'https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png';
+    const img1 = sheet.insertImage(url, 1, 1);
+    if (img1) {
+      results.push('URL image: SUCCESS');
+      img1.setWidth(100).setHeight(30);
+    } else {
+      results.push('URL image: returned null');
+    }
+  } catch (e) {
+    results.push('URL image: FAILED - ' + e.message);
+  }
+
+  // Test 2: Try with UrlFetchApp blob
+  try {
+    const response = UrlFetchApp.fetch('https://via.placeholder.com/100x30/4A6572/4A6572.png');
+    const blob = response.getBlob();
+    const img2 = sheet.insertImage(blob, 3, 1);
+    if (img2) {
+      results.push('Fetched blob: SUCCESS');
+    } else {
+      results.push('Fetched blob: returned null');
+    }
+  } catch (e) {
+    results.push('Fetched blob: FAILED - ' + e.message);
+  }
+
+  // Test 3: Try BMP blob creation
+  try {
+    const bmpBlob = createColoredRectangleImage(100, 30, '#4A6572');
+    const img3 = sheet.insertImage(bmpBlob, 5, 1);
+    if (img3) {
+      results.push('BMP blob: SUCCESS');
+      img3.setWidth(100).setHeight(30);
+    } else {
+      results.push('BMP blob: returned null');
+    }
+  } catch (e) {
+    results.push('BMP blob: FAILED - ' + e.message);
+  }
+
+  ui.alert('Shape Test Results', results.join('\n'), ui.ButtonSet.OK);
+}
+
 function onOpen(e) {
   const ui = SpreadsheetApp.getUi();
 
