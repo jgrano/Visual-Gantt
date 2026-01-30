@@ -14,14 +14,17 @@
 
 /**
  * Creates the sidebar when the add-on is opened in Slides
+ * Default: Shows unified sidebar (self-contained, no external dependencies)
  * @returns {GoogleAppsScript.Card_Service.Card}
  */
 function onSlidesHomepage() {
-  return createSlidesSidebar();
+  // Show unified sidebar by default
+  showUnifiedSlidesSidebar();
+  return null; // Return null since we're showing HTML sidebar
 }
 
 /**
- * Shows the Slides sidebar UI
+ * Shows the Slides sidebar UI (Drive-based workflow)
  */
 function showSlidesSidebar() {
   const html = HtmlService.createHtmlOutputFromFile('SlidesSidebar')
@@ -583,4 +586,272 @@ function showSlidesHelp() {
     .setHeight(600);
 
   SlidesApp.getUi().showModalDialog(html, 'Help - Visual Gantt for Slides');
+}
+
+// ============================================================================
+// UNIFIED WORKFLOW (SINGLE-FILE APPROACH)
+// ============================================================================
+
+/**
+ * Shows the unified sidebar (self-contained, no external dependencies)
+ */
+function showUnifiedSlidesSidebar() {
+  const html = HtmlService.createHtmlOutputFromFile('UnifiedSlidesSidebar')
+    .setTitle('Visual Gantt')
+    .setWidth(300);
+
+  SlidesApp.getUi().showSidebar(html);
+}
+
+/**
+ * Shows the task editor dialog
+ */
+function showTaskEditor() {
+  const html = HtmlService.createHtmlOutputFromFile('TaskEditor')
+    .setWidth(500)
+    .setHeight(600)
+    .setTitle('Task Manager');
+
+  SlidesApp.getUi().showModalDialog(html, 'Task Manager');
+}
+
+/**
+ * Shows import dialog for CSV/JSON
+ */
+function showImportDialog() {
+  const html = HtmlService.createHtmlOutput(`
+    <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 20px; }
+          textarea { width: 100%; height: 300px; font-family: monospace; font-size: 12px; }
+          .button { padding: 10px 20px; margin: 5px; cursor: pointer; }
+          .primary { background: #1a73e8; color: white; border: none; border-radius: 4px; }
+          .secondary { background: #f1f3f4; color: #202124; border: none; border-radius: 4px; }
+          #status { margin-top: 10px; padding: 10px; border-radius: 4px; display: none; }
+          .success { background: #e6f4ea; color: #1e8e3e; display: block; }
+          .error { background: #fce8e6; color: #c5221f; display: block; }
+        </style>
+      </head>
+      <body>
+        <h2>Import Data</h2>
+        <p>Paste JSON or CSV data below:</p>
+        <textarea id="importData" placeholder="Paste JSON or CSV here..."></textarea>
+        <div id="status"></div>
+        <br>
+        <button class="button primary" onclick="importData()">Import</button>
+        <button class="button secondary" onclick="google.script.host.close()">Cancel</button>
+
+        <script>
+          function importData() {
+            const data = document.getElementById('importData').value;
+            if (!data.trim()) {
+              showStatus('Please paste data first', 'error');
+              return;
+            }
+
+            // Try JSON first
+            try {
+              JSON.parse(data);
+              google.script.run
+                .withSuccessHandler(onSuccess)
+                .withFailureHandler(onError)
+                .importProjectJSON(data);
+              return;
+            } catch (e) {
+              // Not JSON, try CSV
+            }
+
+            // Try CSV
+            if (data.includes(',')) {
+              google.script.run
+                .withSuccessHandler(onSuccess)
+                .withFailureHandler(onError)
+                .importTasksFromCSV(data);
+            } else {
+              showStatus('Invalid data format. Please paste JSON or CSV.', 'error');
+            }
+          }
+
+          function onSuccess(result) {
+            if (result.success) {
+              showStatus('✓ Imported ' + result.taskCount + ' tasks', 'success');
+              setTimeout(() => google.script.host.close(), 2000);
+            } else {
+              showStatus('Error: ' + result.message, 'error');
+            }
+          }
+
+          function onError(error) {
+            showStatus('Error: ' + error.message, 'error');
+          }
+
+          function showStatus(message, type) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = type;
+          }
+        </script>
+      </body>
+    </html>
+  `)
+    .setWidth(600)
+    .setHeight(500);
+
+  SlidesApp.getUi().showModalDialog(html, 'Import Data');
+}
+
+/**
+ * Inserts timeline as image using embedded presentation data
+ * @returns {Object} Result of the insertion
+ */
+function insertTimelineAsImageFromPresentation() {
+  try {
+    const projectData = loadProjectFromPresentation();
+
+    if (!projectData || !projectData.tasks || projectData.tasks.length === 0) {
+      return {
+        success: false,
+        message: 'No tasks found. Add tasks first.'
+      };
+    }
+
+    const presentation = SlidesApp.getActivePresentation();
+    const selection = presentation.getSelection();
+    const currentSlide = selection.getCurrentPage();
+
+    if (!currentSlide || currentSlide.getPageType() !== SlidesApp.PageType.SLIDE) {
+      return {
+        success: false,
+        message: 'Please select a slide first'
+      };
+    }
+
+    // Generate chart blob (reuses existing logic)
+    const chartBlob = generateChartBlobFromProject(projectData);
+    if (!chartBlob) {
+      return {
+        success: false,
+        message: 'Failed to generate chart'
+      };
+    }
+
+    // Insert image
+    const image = currentSlide.insertImage(chartBlob);
+
+    // Position and size
+    const slideWidth = currentSlide.getPageWidth();
+    const slideHeight = currentSlide.getPageHeight();
+    const margin = 20;
+    const maxWidth = slideWidth - (2 * margin);
+    const maxHeight = slideHeight - (2 * margin);
+
+    const imageWidth = image.getWidth();
+    const imageHeight = image.getHeight();
+    const scale = Math.min(maxWidth / imageWidth, maxHeight / imageHeight, 1);
+
+    image.setWidth(imageWidth * scale);
+    image.setHeight(imageHeight * scale);
+    image.setLeft((slideWidth - (imageWidth * scale)) / 2);
+    image.setTop((slideHeight - (imageHeight * scale)) / 2);
+
+    image.setDescription('Visual Gantt: ' + (projectData.name || 'Timeline'));
+
+    return {
+      success: true,
+      message: 'Timeline inserted with ' + projectData.tasks.length + ' tasks',
+      taskCount: projectData.tasks.length
+    };
+  } catch (e) {
+    Logger.log('Error inserting timeline as image: ' + e.message);
+    return {
+      success: false,
+      message: 'Failed to insert: ' + e.message
+    };
+  }
+}
+
+/**
+ * Inserts timeline as native shapes using embedded presentation data
+ * @returns {Object} Result of the insertion
+ */
+function insertTimelineAsShapesFromPresentation() {
+  try {
+    const projectData = loadProjectFromPresentation();
+
+    if (!projectData || !projectData.tasks || projectData.tasks.length === 0) {
+      return {
+        success: false,
+        message: 'No tasks found. Add tasks first.'
+      };
+    }
+
+    const presentation = SlidesApp.getActivePresentation();
+    const selection = presentation.getSelection();
+    const currentSlide = selection.getCurrentPage();
+
+    if (!currentSlide || currentSlide.getPageType() !== SlidesApp.PageType.SLIDE) {
+      return {
+        success: false,
+        message: 'Please select a slide first'
+      };
+    }
+
+    // Render as shapes (reuses SlidesShapesRenderer.gs)
+    const result = renderGanttAsShapes(currentSlide, projectData);
+
+    return result;
+  } catch (e) {
+    Logger.log('Error inserting timeline as shapes: ' + e.message);
+    return {
+      success: false,
+      message: 'Failed to insert: ' + e.message
+    };
+  }
+}
+
+/**
+ * Refreshes the timeline on the current slide (regenerates from latest data)
+ * @returns {Object} Result of the refresh
+ */
+function refreshTimelineOnSlide() {
+  try {
+    const projectData = loadProjectFromPresentation();
+
+    if (!projectData || !projectData.tasks || projectData.tasks.length === 0) {
+      return {
+        success: false,
+        message: 'No tasks found'
+      };
+    }
+
+    const presentation = SlidesApp.getActivePresentation();
+    const selection = presentation.getSelection();
+    const currentSlide = selection.getCurrentPage();
+
+    if (!currentSlide || currentSlide.getPageType() !== SlidesApp.PageType.SLIDE) {
+      return {
+        success: false,
+        message: 'Please select a slide first'
+      };
+    }
+
+    // Find and remove existing timeline images/shapes
+    const images = currentSlide.getImages();
+    images.forEach(image => {
+      const desc = image.getDescription();
+      if (desc && desc.includes('Visual Gantt')) {
+        image.remove();
+      }
+    });
+
+    // Re-insert
+    return insertTimelineAsImageFromPresentation();
+  } catch (e) {
+    Logger.log('Error refreshing timeline: ' + e.message);
+    return {
+      success: false,
+      message: 'Failed to refresh: ' + e.message
+    };
+  }
 }

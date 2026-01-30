@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Google Sans', Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #f8f9fa;
+    }
+
+    .header {
+      background: #1a73e8;
+      color: white;
+      padding: 16px;
+      text-align: center;
+    }
+
+    .header h1 {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 500;
+    }
+
+    .tabs {
+      display: flex;
+      background: white;
+      border-bottom: 1px solid #dadce0;
+    }
+
+    .tab {
+      flex: 1;
+      padding: 12px;
+      text-align: center;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      color: #5f6368;
+      border-bottom: 3px solid transparent;
+      transition: all 0.2s;
+    }
+
+    .tab:hover {
+      background-color: #f8f9fa;
+    }
+
+    .tab.active {
+      color: #1a73e8;
+      border-bottom-color: #1a73e8;
+    }
+
+    .tab-content {
+      display: none;
+      padding: 16px;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    .button {
+      display: block;
+      width: 100%;
+      padding: 12px;
+      margin-bottom: 8px;
+      border: none;
+      border-radius: 4px;
+      background-color: #1a73e8;
+      color: white;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+
+    .button:hover {
+      background-color: #1765cc;
+    }
+
+    .button.secondary {
+      background-color: #f1f3f4;
+      color: #202124;
+    }
+
+    .button.secondary:hover {
+      background-color: #e8eaed;
+    }
+
+    .button:disabled {
+      background-color: #dadce0;
+      color: #80868b;
+      cursor: not-allowed;
+    }
+
+    .task-list {
+      background: white;
+      border-radius: 8px;
+      overflow: hidden;
+      margin-bottom: 16px;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+
+    .task-item {
+      padding: 12px;
+      border-bottom: 1px solid #e8eaed;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+
+    .task-item:hover {
+      background-color: #f8f9fa;
+    }
+
+    .task-item:last-child {
+      border-bottom: none;
+    }
+
+    .task-name {
+      font-size: 14px;
+      font-weight: 500;
+      color: #202124;
+      margin-bottom: 4px;
+    }
+
+    .task-details {
+      font-size: 11px;
+      color: #5f6368;
+    }
+
+    .task-count {
+      background: #e8f0fe;
+      padding: 12px;
+      border-radius: 4px;
+      margin-bottom: 16px;
+      text-align: center;
+      font-size: 14px;
+      color: #1967d2;
+      font-weight: 500;
+    }
+
+    .approach-card {
+      background: white;
+      border: 2px solid #dadce0;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .approach-card:hover {
+      border-color: #1a73e8;
+      background-color: #f8f9fa;
+    }
+
+    .approach-card.selected {
+      background-color: #e8f0fe;
+      border-color: #1a73e8;
+    }
+
+    .approach-card h3 {
+      margin: 0 0 4px 0;
+      font-size: 15px;
+      font-weight: 500;
+      color: #202124;
+    }
+
+    .approach-card p {
+      margin: 0;
+      font-size: 12px;
+      color: #5f6368;
+    }
+
+    .status {
+      padding: 10px;
+      margin-bottom: 12px;
+      border-radius: 4px;
+      font-size: 13px;
+      display: none;
+    }
+
+    .status.success {
+      background-color: #e6f4ea;
+      color: #1e8e3e;
+      display: block;
+    }
+
+    .status.error {
+      background-color: #fce8e6;
+      color: #c5221f;
+      display: block;
+    }
+
+    .loader {
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid #1a73e8;
+      border-radius: 50%;
+      width: 30px;
+      height: 30px;
+      animation: spin 1s linear infinite;
+      margin: 20px auto;
+      display: none;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: #5f6368;
+      font-size: 14px;
+    }
+
+    .form-group {
+      margin-bottom: 12px;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 12px;
+      font-weight: 500;
+      color: #202124;
+      margin-bottom: 4px;
+    }
+
+    .form-group select {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #dadce0;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+
+    .info-box {
+      background: #e8f0fe;
+      border-left: 4px solid #1a73e8;
+      padding: 12px;
+      margin-bottom: 16px;
+      font-size: 12px;
+      color: #1967d2;
+      border-radius: 4px;
+    }
+
+    .info-box strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Visual Gantt</h1>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" onclick="showTab('tasks')">Tasks</div>
+    <div class="tab" onclick="showTab('insert')">Insert</div>
+    <div class="tab" onclick="showTab('settings')">Settings</div>
+  </div>
+
+  <div id="status" class="status"></div>
+  <div class="loader" id="loader"></div>
+
+  <!-- Tab 1: Tasks -->
+  <div id="tasksTab" class="tab-content active">
+    <div class="info-box">
+      <strong>📦 Self-Contained Project</strong>
+      All data is stored in this presentation file. Share the file, share the project!
+    </div>
+
+    <div class="task-count" id="taskCount">0 tasks</div>
+
+    <button class="button" onclick="showTaskEditor()">+ Add Task</button>
+    <button class="button secondary" onclick="showImportDialog()">Import CSV/JSON</button>
+
+    <div id="taskList" class="task-list">
+      <!-- Tasks rendered here -->
+    </div>
+
+    <div id="emptyTaskState" class="empty-state" style="display: none;">
+      <p>No tasks yet</p>
+      <p style="font-size: 12px;">Add tasks to get started</p>
+    </div>
+  </div>
+
+  <!-- Tab 2: Insert -->
+  <div id="insertTab" class="tab-content">
+    <div class="info-box">
+      <strong>Choose How to Insert</strong>
+      Select an insertion method below, then click Insert Timeline.
+    </div>
+
+    <div class="approach-card" id="approach1" onclick="selectApproach(1)">
+      <h3>📸 Static Image</h3>
+      <p>High-quality presentation-ready image</p>
+    </div>
+
+    <div class="approach-card" id="approach3" onclick="selectApproach(3)">
+      <h3>✨ Interactive Shapes</h3>
+      <p>Each task is editable & animatable</p>
+    </div>
+
+    <button class="button" id="insertButton" onclick="insertTimeline()" disabled>Insert Timeline</button>
+
+    <hr style="margin: 20px 0; border: none; border-top: 1px solid #dadce0;">
+
+    <button class="button secondary" onclick="refreshTimeline()">Refresh Current Slide</button>
+  </div>
+
+  <!-- Tab 3: Settings -->
+  <div id="settingsTab" class="tab-content">
+    <div class="info-box">
+      <strong>⚙️ Chart Settings</strong>
+      Configure how your timeline looks.
+    </div>
+
+    <div class="form-group">
+      <label>Group By</label>
+      <select id="swimlaneGrouping">
+        <option value="swimlane">Swimlane/Category</option>
+        <option value="owner">Owner</option>
+        <option value="priority">Priority</option>
+        <option value="none">No Grouping</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label>Color By</label>
+      <select id="colorBy">
+        <option value="priority">Priority</option>
+        <option value="taskType">Task Type</option>
+        <option value="swimlane">Swimlane</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label>Bar Height</label>
+      <select id="barHeight">
+        <option value="20">Small (20px)</option>
+        <option value="24" selected>Medium (24px)</option>
+        <option value="32">Large (32px)</option>
+      </select>
+    </div>
+
+    <button class="button" onclick="saveSettings()">Save Settings</button>
+
+    <hr style="margin: 20px 0; border: none; border-top: 1px solid #dadce0;">
+
+    <button class="button secondary" onclick="exportProjectJSON()">Export as JSON</button>
+    <button class="button secondary" onclick="showAboutDialog()">About</button>
+  </div>
+
+  <script>
+    let tasks = [];
+    let selectedApproach = null;
+
+    // Load tasks on page load
+    window.onload = function() {
+      loadTasks();
+      loadSettings();
+    };
+
+    function showTab(tabName) {
+      // Update tab buttons
+      document.querySelectorAll('.tab').forEach(tab => {
+        tab.classList.remove('active');
+      });
+      event.currentTarget.classList.add('active');
+
+      // Update tab content
+      document.querySelectorAll('.tab-content').forEach(content => {
+        content.classList.remove('active');
+      });
+      document.getElementById(tabName + 'Tab').classList.add('active');
+    }
+
+    function loadTasks() {
+      google.script.run
+        .withSuccessHandler(onTasksLoaded)
+        .withFailureHandler(onError)
+        .getTasksFromPresentation();
+    }
+
+    function onTasksLoaded(loadedTasks) {
+      tasks = loadedTasks || [];
+      renderTaskList();
+      updateTaskCount();
+    }
+
+    function renderTaskList() {
+      const container = document.getElementById('taskList');
+      const emptyState = document.getElementById('emptyTaskState');
+
+      if (tasks.length === 0) {
+        container.style.display = 'none';
+        emptyState.style.display = 'block';
+        return;
+      }
+
+      container.style.display = 'block';
+      emptyState.style.display = 'none';
+      container.innerHTML = '';
+
+      tasks.forEach(task => {
+        const item = document.createElement('div');
+        item.className = 'task-item';
+        item.onclick = function() { showTaskEditor(); };
+
+        const dates = formatDateRange(task.startDate, task.endDate);
+
+        item.innerHTML = `
+          <div class="task-name">${escapeHtml(task.taskName || 'Untitled Task')}</div>
+          <div class="task-details">
+            ${dates} • ${task.percentComplete || 0}% complete
+          </div>
+        `;
+
+        container.appendChild(item);
+      });
+    }
+
+    function updateTaskCount() {
+      document.getElementById('taskCount').textContent = tasks.length + ' task' + (tasks.length !== 1 ? 's' : '');
+    }
+
+    function formatDateRange(startDate, endDate) {
+      if (!startDate || !endDate) return 'No dates';
+
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+
+      const options = { month: 'short', day: 'numeric' };
+      return start.toLocaleDateString('en-US', options) + ' - ' + end.toLocaleDateString('en-US', options);
+    }
+
+    function showTaskEditor() {
+      google.script.run.showTaskEditor();
+    }
+
+    function showImportDialog() {
+      google.script.run.showImportDialog();
+    }
+
+    function selectApproach(approach) {
+      // Deselect all
+      document.getElementById('approach1').classList.remove('selected');
+      document.getElementById('approach3').classList.remove('selected');
+
+      // Select clicked
+      document.getElementById('approach' + approach).classList.add('selected');
+      selectedApproach = approach;
+
+      // Enable insert button
+      document.getElementById('insertButton').disabled = false;
+    }
+
+    function insertTimeline() {
+      if (!selectedApproach) {
+        showStatus('Please select an insertion method', 'error');
+        return;
+      }
+
+      if (tasks.length === 0) {
+        showStatus('Add tasks first before inserting timeline', 'error');
+        return;
+      }
+
+      document.getElementById('loader').style.display = 'block';
+      document.getElementById('insertButton').disabled = true;
+
+      let insertFunction = selectedApproach === 1 ? 'insertTimelineAsImageFromPresentation' : 'insertTimelineAsShapesFromPresentation';
+
+      google.script.run
+        .withSuccessHandler(onInsertSuccess)
+        .withFailureHandler(onError)
+        [insertFunction]();
+    }
+
+    function onInsertSuccess(result) {
+      document.getElementById('loader').style.display = 'none';
+      document.getElementById('insertButton').disabled = false;
+
+      if (result.success) {
+        showStatus('✓ ' + result.message, 'success');
+      } else {
+        showStatus('Error: ' + result.message, 'error');
+      }
+    }
+
+    function refreshTimeline() {
+      if (tasks.length === 0) {
+        showStatus('Add tasks first', 'error');
+        return;
+      }
+
+      document.getElementById('loader').style.display = 'block';
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          document.getElementById('loader').style.display = 'none';
+          if (result.success) {
+            showStatus('✓ Timeline refreshed', 'success');
+          } else {
+            showStatus('Error: ' + result.message, 'error');
+          }
+        })
+        .withFailureHandler(onError)
+        .refreshTimelineOnSlide();
+    }
+
+    function loadSettings() {
+      google.script.run
+        .withSuccessHandler(function(config) {
+          if (config) {
+            document.getElementById('swimlaneGrouping').value = config.swimlaneGrouping || 'swimlane';
+            document.getElementById('colorBy').value = config.colorBy || 'priority';
+            document.getElementById('barHeight').value = config.barHeight || '24';
+          }
+        })
+        .getConfigFromPresentation();
+    }
+
+    function saveSettings() {
+      const config = {
+        swimlaneGrouping: document.getElementById('swimlaneGrouping').value,
+        colorBy: document.getElementById('colorBy').value,
+        barHeight: parseInt(document.getElementById('barHeight').value),
+        barSpacing: 8,
+        showDependencies: true,
+        showProgress: true,
+        showTodayMarker: true
+      };
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          if (result.success) {
+            showStatus('✓ Settings saved', 'success');
+          } else {
+            showStatus('Error: ' + result.message, 'error');
+          }
+        })
+        .withFailureHandler(onError)
+        .updateConfigInPresentation(config);
+    }
+
+    function exportProjectJSON() {
+      google.script.run
+        .withSuccessHandler(function(json) {
+          if (json) {
+            // Download as file
+            const blob = new Blob([json], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'project.json';
+            a.click();
+            showStatus('✓ Exported project data', 'success');
+          } else {
+            showStatus('No data to export', 'error');
+          }
+        })
+        .exportProjectJSON();
+    }
+
+    function showAboutDialog() {
+      google.script.run.showSlidesHelp();
+    }
+
+    function onError(error) {
+      document.getElementById('loader').style.display = 'none';
+      showStatus('Error: ' + error.message, 'error');
+    }
+
+    function showStatus(message, type) {
+      const status = document.getElementById('status');
+      status.textContent = message;
+      status.className = 'status ' + type;
+      status.style.display = 'block';
+
+      if (type === 'success') {
+        setTimeout(() => {
+          status.style.display = 'none';
+        }, 4000);
+      }
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Refresh task list when returning from task editor
+    window.refreshTaskList = function() {
+      loadTasks();
+    };
+  </script>
+</body>
+</html>

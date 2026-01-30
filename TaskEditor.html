@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    body {
+      font-family: 'Google Sans', Arial, sans-serif;
+      margin: 0;
+      padding: 16px;
+      background-color: #f8f9fa;
+    }
+
+    h2 {
+      color: #202124;
+      font-size: 18px;
+      font-weight: 500;
+      margin: 0 0 16px 0;
+    }
+
+    .task-list {
+      background: white;
+      border-radius: 8px;
+      overflow: hidden;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+    }
+
+    .task-item {
+      padding: 12px;
+      border-bottom: 1px solid #e8eaed;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+
+    .task-item:hover {
+      background-color: #f8f9fa;
+    }
+
+    .task-item:last-child {
+      border-bottom: none;
+    }
+
+    .task-name {
+      font-size: 14px;
+      font-weight: 500;
+      color: #202124;
+      margin-bottom: 4px;
+    }
+
+    .task-details {
+      font-size: 12px;
+      color: #5f6368;
+    }
+
+    .task-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .task-actions button {
+      font-size: 11px;
+      padding: 4px 8px;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+      background-color: #f1f3f4;
+      color: #202124;
+    }
+
+    .task-actions button:hover {
+      background-color: #e8eaed;
+    }
+
+    .task-actions button.delete {
+      color: #d32f2f;
+    }
+
+    .button {
+      display: block;
+      width: 100%;
+      padding: 12px;
+      margin-bottom: 8px;
+      border: none;
+      border-radius: 4px;
+      background-color: #1a73e8;
+      color: white;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+
+    .button:hover {
+      background-color: #1765cc;
+    }
+
+    .button.secondary {
+      background-color: #f1f3f4;
+      color: #202124;
+    }
+
+    .button.secondary:hover {
+      background-color: #e8eaed;
+    }
+
+    .form-section {
+      background: white;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+      display: none;
+    }
+
+    .form-section.active {
+      display: block;
+    }
+
+    .form-group {
+      margin-bottom: 12px;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: #202124;
+      margin-bottom: 4px;
+    }
+
+    .form-group input,
+    .form-group select,
+    .form-group textarea {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #dadce0;
+      border-radius: 4px;
+      font-size: 13px;
+      box-sizing: border-box;
+    }
+
+    .form-group input:focus,
+    .form-group select:focus,
+    .form-group textarea:focus {
+      outline: none;
+      border-color: #1a73e8;
+    }
+
+    .form-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .form-actions button {
+      flex: 1;
+      padding: 10px;
+      border: none;
+      border-radius: 4px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+
+    .form-actions .save {
+      background-color: #1a73e8;
+      color: white;
+    }
+
+    .form-actions .cancel {
+      background-color: #f1f3f4;
+      color: #202124;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: #5f6368;
+    }
+
+    .status {
+      padding: 8px;
+      margin-bottom: 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      display: none;
+    }
+
+    .status.success {
+      background-color: #e6f4ea;
+      color: #1e8e3e;
+      display: block;
+    }
+
+    .status.error {
+      background-color: #fce8e6;
+      color: #c5221f;
+      display: block;
+    }
+
+    .loader {
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid #1a73e8;
+      border-radius: 50%;
+      width: 24px;
+      height: 24px;
+      animation: spin 1s linear infinite;
+      margin: 12px auto;
+      display: none;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .info-box {
+      background: #e8f0fe;
+      padding: 12px;
+      border-radius: 4px;
+      margin-bottom: 16px;
+      font-size: 13px;
+      color: #1967d2;
+    }
+  </style>
+</head>
+<body>
+  <h2>Task Manager</h2>
+
+  <div class="info-box">
+    All tasks are stored in this presentation file. No external dependencies!
+  </div>
+
+  <div id="status" class="status"></div>
+  <div class="loader" id="loader"></div>
+
+  <!-- Task List View -->
+  <div id="listView">
+    <button class="button" onclick="showAddForm()">+ Add New Task</button>
+
+    <div id="taskListContainer" class="task-list">
+      <!-- Tasks will be rendered here -->
+    </div>
+
+    <div id="emptyState" class="empty-state" style="display: none;">
+      <p>No tasks yet</p>
+      <p style="font-size: 12px;">Click "Add New Task" to get started</p>
+    </div>
+
+    <button class="button secondary" onclick="refreshTasks()">Refresh</button>
+  </div>
+
+  <!-- Add/Edit Task Form -->
+  <div id="formView" class="form-section">
+    <h3 id="formTitle">Add Task</h3>
+
+    <form id="taskForm" onsubmit="return false;">
+      <input type="hidden" id="editingTaskId">
+
+      <div class="form-group">
+        <label for="taskName">Task Name *</label>
+        <input type="text" id="taskName" required>
+      </div>
+
+      <div class="form-group">
+        <label for="startDate">Start Date *</label>
+        <input type="date" id="startDate" required>
+      </div>
+
+      <div class="form-group">
+        <label for="endDate">End Date *</label>
+        <input type="date" id="endDate" required>
+      </div>
+
+      <div class="form-group">
+        <label for="owner">Owner</label>
+        <input type="text" id="owner">
+      </div>
+
+      <div class="form-group">
+        <label for="percentComplete">Progress (%)</label>
+        <input type="number" id="percentComplete" min="0" max="100" value="0">
+      </div>
+
+      <div class="form-group">
+        <label for="priority">Priority</label>
+        <select id="priority">
+          <option value="High">High</option>
+          <option value="Medium" selected>Medium</option>
+          <option value="Low">Low</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="taskType">Type</label>
+        <select id="taskType">
+          <option value="Task" selected>Task</option>
+          <option value="Milestone">Milestone</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="swimlane">Swimlane/Category</label>
+        <input type="text" id="swimlane">
+      </div>
+
+      <div class="form-group">
+        <label for="dependencies">Dependencies (comma-separated Task IDs)</label>
+        <input type="text" id="dependencies" placeholder="TASK-001, TASK-002">
+      </div>
+
+      <div class="form-actions">
+        <button type="button" class="cancel" onclick="cancelForm()">Cancel</button>
+        <button type="button" class="save" onclick="saveTask()">Save</button>
+      </div>
+    </form>
+  </div>
+
+  <script>
+    let tasks = [];
+    let editingTaskId = null;
+
+    // Load tasks on page load
+    window.onload = function() {
+      loadTasks();
+    };
+
+    function loadTasks() {
+      document.getElementById('loader').style.display = 'block';
+
+      google.script.run
+        .withSuccessHandler(onTasksLoaded)
+        .withFailureHandler(onError)
+        .getTasksFromPresentation();
+    }
+
+    function onTasksLoaded(loadedTasks) {
+      document.getElementById('loader').style.display = 'none';
+      tasks = loadedTasks || [];
+      renderTaskList();
+    }
+
+    function renderTaskList() {
+      const container = document.getElementById('taskListContainer');
+      const emptyState = document.getElementById('emptyState');
+
+      if (tasks.length === 0) {
+        container.style.display = 'none';
+        emptyState.style.display = 'block';
+        return;
+      }
+
+      container.style.display = 'block';
+      emptyState.style.display = 'none';
+      container.innerHTML = '';
+
+      tasks.forEach(task => {
+        const item = document.createElement('div');
+        item.className = 'task-item';
+
+        const dates = formatDateRange(task.startDate, task.endDate);
+        const progress = task.percentComplete || 0;
+
+        item.innerHTML = `
+          <div class="task-name">${escapeHtml(task.taskName || 'Untitled Task')}</div>
+          <div class="task-details">
+            ${task.taskId ? task.taskId + ' • ' : ''}
+            ${dates} •
+            ${progress}% complete
+            ${task.owner ? ' • ' + escapeHtml(task.owner) : ''}
+          </div>
+          <div class="task-actions">
+            <button onclick="editTask('${task.taskId}')">Edit</button>
+            <button class="delete" onclick="deleteTask('${task.taskId}')">Delete</button>
+          </div>
+        `;
+
+        container.appendChild(item);
+      });
+    }
+
+    function formatDateRange(startDate, endDate) {
+      if (!startDate || !endDate) return 'No dates';
+
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+
+      const options = { month: 'short', day: 'numeric' };
+      return start.toLocaleDateString('en-US', options) + ' - ' + end.toLocaleDateString('en-US', options);
+    }
+
+    function showAddForm() {
+      document.getElementById('listView').style.display = 'none';
+      document.getElementById('formView').classList.add('active');
+      document.getElementById('formTitle').textContent = 'Add Task';
+      document.getElementById('taskForm').reset();
+      document.getElementById('editingTaskId').value = '';
+      editingTaskId = null;
+    }
+
+    function editTask(taskId) {
+      const task = tasks.find(t => t.taskId === taskId);
+      if (!task) return;
+
+      document.getElementById('listView').style.display = 'none';
+      document.getElementById('formView').classList.add('active');
+      document.getElementById('formTitle').textContent = 'Edit Task';
+      document.getElementById('editingTaskId').value = taskId;
+      editingTaskId = taskId;
+
+      // Populate form
+      document.getElementById('taskName').value = task.taskName || '';
+      document.getElementById('startDate').value = task.startDate || '';
+      document.getElementById('endDate').value = task.endDate || '';
+      document.getElementById('owner').value = task.owner || '';
+      document.getElementById('percentComplete').value = task.percentComplete || 0;
+      document.getElementById('priority').value = task.priority || 'Medium';
+      document.getElementById('taskType').value = task.taskType || 'Task';
+      document.getElementById('swimlane').value = task.swimlane || '';
+      document.getElementById('dependencies').value = task.dependencies || '';
+    }
+
+    function cancelForm() {
+      document.getElementById('formView').classList.remove('active');
+      document.getElementById('listView').style.display = 'block';
+      document.getElementById('taskForm').reset();
+      editingTaskId = null;
+    }
+
+    function saveTask() {
+      const taskData = {
+        taskName: document.getElementById('taskName').value,
+        startDate: document.getElementById('startDate').value,
+        endDate: document.getElementById('endDate').value,
+        owner: document.getElementById('owner').value,
+        percentComplete: parseInt(document.getElementById('percentComplete').value) || 0,
+        priority: document.getElementById('priority').value,
+        taskType: document.getElementById('taskType').value,
+        swimlane: document.getElementById('swimlane').value,
+        dependencies: document.getElementById('dependencies').value
+      };
+
+      if (!taskData.taskName || !taskData.startDate || !taskData.endDate) {
+        showStatus('Please fill in required fields', 'error');
+        return;
+      }
+
+      document.getElementById('loader').style.display = 'block';
+
+      if (editingTaskId) {
+        // Update existing task
+        google.script.run
+          .withSuccessHandler(onTaskSaved)
+          .withFailureHandler(onError)
+          .updateTaskInPresentation(editingTaskId, taskData);
+      } else {
+        // Add new task
+        google.script.run
+          .withSuccessHandler(onTaskSaved)
+          .withFailureHandler(onError)
+          .addTaskToPresentation(taskData);
+      }
+    }
+
+    function onTaskSaved(result) {
+      document.getElementById('loader').style.display = 'none';
+
+      if (result.success) {
+        showStatus('Task saved successfully', 'success');
+        cancelForm();
+        loadTasks();
+      } else {
+        showStatus('Error: ' + result.message, 'error');
+      }
+    }
+
+    function deleteTask(taskId) {
+      if (!confirm('Delete this task?')) return;
+
+      document.getElementById('loader').style.display = 'block';
+
+      google.script.run
+        .withSuccessHandler(onTaskDeleted)
+        .withFailureHandler(onError)
+        .deleteTaskFromPresentation(taskId);
+    }
+
+    function onTaskDeleted(result) {
+      document.getElementById('loader').style.display = 'none';
+
+      if (result.success) {
+        showStatus('Task deleted', 'success');
+        loadTasks();
+      } else {
+        showStatus('Error: ' + result.message, 'error');
+      }
+    }
+
+    function refreshTasks() {
+      loadTasks();
+      showStatus('Refreshing...', 'success');
+    }
+
+    function onError(error) {
+      document.getElementById('loader').style.display = 'none';
+      showStatus('Error: ' + error.message, 'error');
+    }
+
+    function showStatus(message, type) {
+      const status = document.getElementById('status');
+      status.textContent = message;
+      status.className = 'status ' + type;
+      status.style.display = 'block';
+
+      if (type === 'success') {
+        setTimeout(() => {
+          status.style.display = 'none';
+        }, 3000);
+      }
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+  </script>
+</body>
+</html>
