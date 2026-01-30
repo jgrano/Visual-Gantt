@@ -1955,6 +1955,27 @@ function generateNativeTimeline(tasks, config, startDate, endDate) {
   const BAR_HEIGHT = 22;
   const BAR_TOP_OFFSET = 9;  // Pixels from top of row to bar
 
+  // Ensure sheet has enough columns and rows
+  const requiredCols = LABEL_COLS + totalDays;
+  const requiredRows = HEADER_ROWS + sortedTasks.length + 1;
+
+  const currentCols = timelineSheet.getMaxColumns();
+  const currentRows = timelineSheet.getMaxRows();
+
+  if (currentCols < requiredCols) {
+    timelineSheet.insertColumnsAfter(currentCols, requiredCols - currentCols);
+  } else if (currentCols > requiredCols + 10) {
+    // Remove excess columns to keep sheet clean
+    timelineSheet.deleteColumns(requiredCols + 1, currentCols - requiredCols);
+  }
+
+  if (currentRows < requiredRows) {
+    timelineSheet.insertRowsAfter(currentRows, requiredRows - currentRows);
+  } else if (currentRows > requiredRows + 5) {
+    // Remove excess rows to keep sheet clean
+    timelineSheet.deleteRows(requiredRows + 1, currentRows - requiredRows);
+  }
+
   // Set up label column widths
   timelineSheet.setColumnWidth(1, 80);   // Project
   timelineSheet.setColumnWidth(2, 200);  // Task Name
