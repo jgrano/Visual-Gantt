@@ -30,8 +30,10 @@ const COLUMN_HEADERS = [
   'Dependencies',
   'Task Type',
   'Swimlane/Category',
-  'Original Start',  // Tracks original start date for slip visualization
-  'Original End',    // Tracks original end date for slip visualization
+  'Project',  // Project identifier (e.g., "C1", "C2", "Vue")
+  'Original Start',
+  'Original End',
+  'Slip',  // Calculated slip description (e.g., "7 days later")
   'Modified'  // Tracks local changes for Jira sync
 ];
 
@@ -50,9 +52,11 @@ const COL = {
   DEPENDENCIES: 10,
   TASK_TYPE: 11,
   SWIMLANE: 12,
-  ORIGINAL_START: 13,
-  ORIGINAL_END: 14,
-  MODIFIED: 15
+  PROJECT: 13,
+  ORIGINAL_START: 14,
+  ORIGINAL_END: 15,
+  SLIP: 16,
+  MODIFIED: 17
 };
 
 // Default Jira configuration
@@ -122,7 +126,7 @@ const SMARTSHEET_PRIORITY_MAPPING = {
 const DEFAULT_CONFIG = {
   startDate: null,
   endDate: null,
-  swimlaneGrouping: 'Category', // 'Owner', 'Category', 'None'
+  swimlaneGrouping: 'Category', // 'Owner', 'Category', 'Project', 'None'
   colorScheme: 'priority', // 'priority', 'taskType', 'swimlane'
   showDependencies: true,
   showPercentComplete: true,
@@ -131,8 +135,8 @@ const DEFAULT_CONFIG = {
   barHeight: 24,
   barSpacing: 8,
   fontSize: 12,
-  chartWidth: 1200,
-  chartHeight: 800
+  chartWidth: 1100,  // Optimized for 3-month view without scrolling
+  chartHeight: 700
 };
 
 const PRIORITY_COLORS = {
@@ -428,6 +432,61 @@ function showAuthorizationDiagnostics() {
  * Creates the add-on menu when the spreadsheet opens
  * Handles both full and limited authorization modes
  */
+/**
+ * TEST: Simple test to verify image insertion works
+ */
+function testInsertShape() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getActiveSheet();
+  const ui = SpreadsheetApp.getUi();
+
+  let results = [];
+
+  // Test 1: Try inserting from a public URL
+  try {
+    const url = 'https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png';
+    const img1 = sheet.insertImage(url, 1, 1);
+    if (img1) {
+      results.push('URL image: SUCCESS');
+      img1.setWidth(100).setHeight(30);
+    } else {
+      results.push('URL image: returned null');
+    }
+  } catch (e) {
+    results.push('URL image: FAILED - ' + e.message);
+  }
+
+  // Test 2: Try with UrlFetchApp blob
+  try {
+    const response = UrlFetchApp.fetch('https://via.placeholder.com/100x30/4A6572/4A6572.png');
+    const blob = response.getBlob();
+    const img2 = sheet.insertImage(blob, 3, 1);
+    if (img2) {
+      results.push('Fetched blob: SUCCESS');
+    } else {
+      results.push('Fetched blob: returned null');
+    }
+  } catch (e) {
+    results.push('Fetched blob: FAILED - ' + e.message);
+  }
+
+  // Test 3: Try BMP blob creation
+  try {
+    const bmpBlob = createColoredRectangleImage(100, 30, '#4A6572');
+    const img3 = sheet.insertImage(bmpBlob, 5, 1);
+    if (img3) {
+      results.push('BMP blob: SUCCESS');
+      img3.setWidth(100).setHeight(30);
+    } else {
+      results.push('BMP blob: returned null');
+    }
+  } catch (e) {
+    results.push('BMP blob: FAILED - ' + e.message);
+  }
+
+  ui.alert('Shape Test Results', results.join('\n'), ui.ButtonSet.OK);
+}
+
 function onOpen(e) {
   const ui = SpreadsheetApp.getUi();
 
@@ -735,8 +794,8 @@ function setupDataSheet() {
   headerRange.setFontColor('#FFFFFF');
   headerRange.setHorizontalAlignment('center');
 
-  // Set column widths (includes Original Start, Original End, and Modified columns)
-  const columnWidths = [80, 200, 100, 100, 100, 120, 80, 80, 150, 120, 150, 100, 150, 100, 100, 70];
+  // Set column widths (includes Project, Original Start, Original End, Slip, and Modified columns)
+  const columnWidths = [80, 200, 100, 100, 100, 120, 80, 80, 150, 120, 150, 100, 150, 100, 100, 100, 120, 70];
   columnWidths.forEach((width, index) => {
     dataSheet.setColumnWidth(index + 1, width);
   });
@@ -951,8 +1010,9 @@ function readTaskData() {
       dependencies: row[10] ? String(row[10]).split(',').map(d => d.trim()).filter(d => d) : [],
       taskType: row[11] ? String(row[11]).trim() : 'Task',
       swimlane: row[12] ? String(row[12]).trim() : 'Default',
-      originalStartDate: parseDate(row[13]),
-      originalEndDate: parseDate(row[14]),
+      project: row[13] ? String(row[13]).trim() : '',
+      originalStartDate: parseDate(row[14]),
+      originalEndDate: parseDate(row[15]),
       rowNumber: rowNum
     };
 
@@ -1886,18 +1946,19 @@ function generateTimeline() {
   const config = getConfig();
 
   // Calculate date range if not specified
+  // Default: Current date - 1 month to Current date + 2 months
   let startDate = config.startDate ? new Date(config.startDate) : null;
   let endDate = config.endDate ? new Date(config.endDate) : null;
 
   if (!startDate || !endDate) {
-    const dates = tasks.flatMap(t => [t.startDate, t.endDate]).filter(d => d);
+    const today = new Date();
     if (!startDate) {
-      startDate = new Date(Math.min(...dates));
-      startDate.setDate(startDate.getDate() - 7); // Add padding
+      startDate = new Date(today);
+      startDate.setMonth(startDate.getMonth() - 1);  // 1 month before today
     }
     if (!endDate) {
-      endDate = new Date(Math.max(...dates));
-      endDate.setDate(endDate.getDate() + 7); // Add padding
+      endDate = new Date(today);
+      endDate.setMonth(endDate.getMonth() + 2);  // 2 months after today
     }
   }
 
@@ -1910,6 +1971,425 @@ function generateTimeline() {
     today: new Date().toISOString()
   };
 
+  // Generate native Sheets timeline (new approach - no canvas/images)
+  generateNativeTimeline(tasks, config, startDate, endDate);
+}
+
+/**
+ * Generates a native Google Sheets Gantt chart using drawing shapes (rectangles)
+ * This creates proper visual bars that can be moved and resized
+ */
+function generateNativeTimeline(tasks, config, startDate, endDate) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let timelineSheet = ss.getSheetByName(TIMELINE_SHEET_NAME);
+
+  // Create or clear timeline sheet
+  if (!timelineSheet) {
+    timelineSheet = ss.insertSheet(TIMELINE_SHEET_NAME, 1);
+  } else {
+    timelineSheet.clear();
+    // Remove all existing images/drawings
+    const images = timelineSheet.getImages();
+    images.forEach(img => img.remove());
+  }
+
+  // Prepare sorted tasks
+  const sortedTasks = prepareTasksForChart(tasks, config);
+
+  // Calculate weeks (one column per week for clean grid like user's example)
+  const totalDays = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24));
+  const totalWeeks = Math.ceil(totalDays / 7);
+
+  // Layout constants
+  const TITLE_ROW = 1;
+  const MONTH_ROW = 2;
+  const WEEK_ROW = 3;
+  const HEADER_ROWS = 3;
+  const LABEL_COLS = 3;   // Project, Task Name, Owner
+  const WEEK_COL_WIDTH = 80;  // Pixels per week column
+  const TASK_ROW_HEIGHT = 50;
+  const BAR_HEIGHT = 30;
+  const BAR_TOP_OFFSET = 10;
+
+  // Ensure sheet has enough columns and rows
+  const requiredCols = LABEL_COLS + totalWeeks;
+  const requiredRows = HEADER_ROWS + sortedTasks.length + 1;
+
+  const currentCols = timelineSheet.getMaxColumns();
+  const currentRows = timelineSheet.getMaxRows();
+
+  if (currentCols < requiredCols) {
+    timelineSheet.insertColumnsAfter(currentCols, requiredCols - currentCols);
+  } else if (currentCols > requiredCols + 5) {
+    timelineSheet.deleteColumns(requiredCols + 1, currentCols - requiredCols);
+  }
+
+  if (currentRows < requiredRows) {
+    timelineSheet.insertRowsAfter(currentRows, requiredRows - currentRows);
+  } else if (currentRows > requiredRows + 5) {
+    timelineSheet.deleteRows(requiredRows + 1, currentRows - requiredRows);
+  }
+
+  // Set up label column widths
+  timelineSheet.setColumnWidth(1, 80);   // Project
+  timelineSheet.setColumnWidth(2, 200);  // Task Name
+  timelineSheet.setColumnWidth(3, 100);  // Owner
+
+  // Set up week columns
+  for (let i = 0; i < totalWeeks; i++) {
+    timelineSheet.setColumnWidth(LABEL_COLS + 1 + i, WEEK_COL_WIDTH);
+  }
+
+  // Set row heights
+  timelineSheet.setRowHeight(TITLE_ROW, 35);
+  timelineSheet.setRowHeight(MONTH_ROW, 22);
+  timelineSheet.setRowHeight(WEEK_ROW, 22);
+
+  for (let i = 0; i < sortedTasks.length; i++) {
+    timelineSheet.setRowHeight(HEADER_ROWS + 1 + i, TASK_ROW_HEIGHT);
+  }
+
+  // === BUILD HEADER ===
+
+  // Title row
+  timelineSheet.getRange(TITLE_ROW, 1).setValue('Project Timeline')
+    .setFontSize(16)
+    .setFontWeight('bold');
+  timelineSheet.getRange(TITLE_ROW, 2).setValue(formatDateShort(startDate) + ' - ' + formatDateShort(endDate))
+    .setFontColor('#666666')
+    .setFontSize(10);
+
+  // Build month headers (group weeks by month)
+  let currentMonth = '';
+  let monthStartCol = LABEL_COLS + 1;
+  const monthRanges = [];
+
+  for (let w = 0; w < totalWeeks; w++) {
+    const weekStart = new Date(startDate);
+    weekStart.setDate(weekStart.getDate() + w * 7);
+    const monthLabel = weekStart.toLocaleString('default', { month: 'short', year: 'numeric' });
+
+    if (monthLabel !== currentMonth) {
+      if (currentMonth !== '') {
+        monthRanges.push({ start: monthStartCol, end: LABEL_COLS + w, month: currentMonth });
+      }
+      currentMonth = monthLabel;
+      monthStartCol = LABEL_COLS + 1 + w;
+    }
+
+    // Week number label
+    timelineSheet.getRange(WEEK_ROW, LABEL_COLS + 1 + w)
+      .setValue('W' + getWeekNumber(weekStart))
+      .setFontSize(9)
+      .setHorizontalAlignment('center');
+  }
+  // Add last month
+  monthRanges.push({ start: monthStartCol, end: LABEL_COLS + totalWeeks, month: currentMonth });
+
+  // Apply month headers
+  monthRanges.forEach(range => {
+    const numCols = range.end - range.start + 1;
+    if (numCols > 1) {
+      timelineSheet.getRange(MONTH_ROW, range.start, 1, numCols).merge();
+    }
+    timelineSheet.getRange(MONTH_ROW, range.start)
+      .setValue(range.month)
+      .setFontWeight('bold')
+      .setHorizontalAlignment('center')
+      .setBackground('#4285F4')
+      .setFontColor('white')
+      .setFontSize(10);
+  });
+
+  // Style week row
+  timelineSheet.getRange(WEEK_ROW, LABEL_COLS + 1, 1, totalWeeks).setBackground('#E8F0FE');
+
+  // Column headers for labels
+  timelineSheet.getRange(MONTH_ROW, 1).setValue('Project').setFontWeight('bold').setBackground('#F8F9FA');
+  timelineSheet.getRange(MONTH_ROW, 2).setValue('Task').setFontWeight('bold').setBackground('#F8F9FA');
+  timelineSheet.getRange(MONTH_ROW, 3).setValue('Owner').setFontWeight('bold').setBackground('#F8F9FA');
+  timelineSheet.getRange(WEEK_ROW, 1, 1, 3).setBackground('#F8F9FA');
+
+  // === BUILD TASK ROWS (labels only) ===
+
+  sortedTasks.forEach((task, taskIdx) => {
+    const row = HEADER_ROWS + 1 + taskIdx;
+    timelineSheet.getRange(row, 1).setValue(task.project || '').setFontSize(9);
+    timelineSheet.getRange(row, 2).setValue(task.name).setFontWeight('bold').setFontSize(10);
+    timelineSheet.getRange(row, 3).setValue(task.owner || '').setFontColor('#666666').setFontSize(9);
+
+    if (taskIdx % 2 === 1) {
+      timelineSheet.getRange(row, 1, 1, LABEL_COLS + totalWeeks).setBackground('#FAFAFA');
+    }
+  });
+
+  // === ADD GRID LINES ===
+
+  // Light vertical lines for each week column
+  for (let i = 0; i < totalWeeks; i++) {
+    timelineSheet.getRange(HEADER_ROWS, LABEL_COLS + 1 + i, sortedTasks.length + 1, 1)
+      .setBorder(null, true, null, null, false, false, '#E0E0E0', SpreadsheetApp.BorderStyle.SOLID);
+  }
+
+  // Horizontal lines between tasks
+  for (let i = 0; i <= sortedTasks.length; i++) {
+    timelineSheet.getRange(HEADER_ROWS + i, 1, 1, LABEL_COLS + totalWeeks)
+      .setBorder(null, null, true, null, false, false, '#E8E8E8', SpreadsheetApp.BorderStyle.SOLID);
+  }
+
+  // Border after label columns
+  timelineSheet.getRange(MONTH_ROW, LABEL_COLS, HEADER_ROWS + sortedTasks.length - 1, 1)
+    .setBorder(null, null, null, true, false, false, '#CCCCCC', SpreadsheetApp.BorderStyle.SOLID);
+
+  // Flush before inserting images
+  SpreadsheetApp.flush();
+
+  // === CREATE FLOATING TASK BAR IMAGES ===
+
+  let barsCreated = 0;
+  let tasksWithoutDates = 0;
+  let tasksOutOfRange = 0;
+
+  sortedTasks.forEach((task, taskIdx) => {
+    const row = HEADER_ROWS + 1 + taskIdx;
+
+    // Check for missing dates
+    if (!task.startDate || !task.endDate) {
+      tasksWithoutDates++;
+      Logger.log('Task "' + task.name + '" missing dates: start=' + task.startDate + ', end=' + task.endDate);
+      return;
+    }
+
+    // Robust date parsing - handle both Date objects and strings
+    let taskStart, taskEnd;
+    if (task.startDate instanceof Date) {
+      taskStart = task.startDate;
+    } else {
+      taskStart = new Date(task.startDate);
+    }
+    if (task.endDate instanceof Date) {
+      taskEnd = task.endDate;
+    } else {
+      taskEnd = new Date(task.endDate);
+    }
+
+    // Validate dates
+    if (isNaN(taskStart.getTime()) || isNaN(taskEnd.getTime())) {
+      tasksWithoutDates++;
+      Logger.log('Task "' + task.name + '" has invalid dates: start=' + task.startDate + ', end=' + task.endDate);
+      return;
+    }
+
+    // Calculate position in weeks (fractional for precision)
+    // Use getTime() explicitly for reliable date arithmetic
+    const msPerWeek = 1000 * 60 * 60 * 24 * 7;
+    const startWeekFrac = (taskStart.getTime() - startDate.getTime()) / msPerWeek;
+    const endWeekFrac = (taskEnd.getTime() - startDate.getTime()) / msPerWeek;
+
+    Logger.log('Task "' + task.name + '": startWeekFrac=' + startWeekFrac.toFixed(2) + ', endWeekFrac=' + endWeekFrac.toFixed(2));
+
+    // Check if task is COMPLETELY outside visible range
+    // Task ends before visible start, or task starts after visible end
+    if (endWeekFrac <= 0 || startWeekFrac >= totalWeeks) {
+      tasksOutOfRange++;
+      Logger.log('Task "' + task.name + '" completely outside visible range');
+      return;
+    }
+
+    // CLIP to visible range - this is the key fix!
+    // Tasks that start before visible range get clipped to start at week 0
+    // Tasks that end after visible range get clipped to end at totalWeeks
+    const clippedStartWeek = Math.max(0, startWeekFrac);
+    const clippedEndWeek = Math.min(totalWeeks, endWeekFrac);
+    const barDurationWeeks = clippedEndWeek - clippedStartWeek;
+
+    Logger.log('Task "' + task.name + '": clipped start=' + clippedStartWeek.toFixed(2) + ', end=' + clippedEndWeek.toFixed(2) + ', duration=' + barDurationWeeks.toFixed(2));
+
+    if (barDurationWeeks <= 0) {
+      tasksOutOfRange++;
+      return;
+    }
+
+    // Calculate pixel positions
+    const startCol = LABEL_COLS + 1 + Math.floor(clippedStartWeek);
+    const offsetX = Math.round((clippedStartWeek % 1) * WEEK_COL_WIDTH);
+    const barWidthPx = Math.max(10, Math.round(barDurationWeeks * WEEK_COL_WIDTH)); // Min 10px
+
+    Logger.log('Task "' + task.name + '": col=' + startCol + ', offsetX=' + offsetX + ', width=' + barWidthPx);
+
+    // Create colored rectangle image
+    const barColor = task.color || '#4A6572';
+    try {
+      const imageBlob = createColoredRectangleImage(barWidthPx, BAR_HEIGHT, barColor);
+      const image = timelineSheet.insertImage(imageBlob, startCol, row, offsetX, BAR_TOP_OFFSET);
+      image.setWidth(barWidthPx);
+      image.setHeight(BAR_HEIGHT);
+      barsCreated++;
+      Logger.log('SUCCESS: Created bar for "' + task.name + '"');
+    } catch (e) {
+      Logger.log('ERROR creating bar for "' + task.name + '": ' + e.message);
+    }
+  });
+
+  Logger.log('=== Summary: created=' + barsCreated + ', missingDates=' + tasksWithoutDates + ', outOfRange=' + tasksOutOfRange + ' ===');
+
+  // === TODAY MARKER ===
+
+  const today = new Date();
+  const todayWeekFrac = (today - startDate) / (1000 * 60 * 60 * 24 * 7);
+
+  if (todayWeekFrac >= 0 && todayWeekFrac < totalWeeks && config.showTodayMarker) {
+    const todayCol = LABEL_COLS + 1 + Math.floor(todayWeekFrac);
+    const todayOffsetX = Math.round((todayWeekFrac % 1) * WEEK_COL_WIDTH);
+
+    // Create today line image
+    const markerHeight = sortedTasks.length * TASK_ROW_HEIGHT;
+    if (markerHeight > 0) {
+      try {
+        const todayBlob = createTodayLineImage(markerHeight);
+        const todayImg = timelineSheet.insertImage(todayBlob, todayCol, HEADER_ROWS + 1, todayOffsetX, 0);
+        todayImg.setWidth(3);
+        todayImg.setHeight(markerHeight);
+      } catch (e) {
+        // Fall back to border-based marker
+        timelineSheet.getRange(WEEK_ROW, todayCol)
+          .setValue('▼')
+          .setFontColor('#FF5722')
+          .setFontSize(8);
+      }
+    }
+  }
+
+  // === FREEZE AND FINALIZE ===
+
+  timelineSheet.setFrozenRows(HEADER_ROWS);
+  timelineSheet.setFrozenColumns(LABEL_COLS);
+
+  ss.setActiveSheet(timelineSheet);
+
+  let statusMessage = 'Your Gantt chart has been created in the "' + TIMELINE_SHEET_NAME + '" sheet.\n\n';
+  statusMessage += '• Task bars created: ' + barsCreated + ' of ' + sortedTasks.length + '\n';
+  if (tasksWithoutDates > 0) {
+    statusMessage += '• Tasks missing dates: ' + tasksWithoutDates + '\n';
+  }
+  if (tasksOutOfRange > 0) {
+    statusMessage += '• Tasks outside date range: ' + tasksOutOfRange + '\n';
+  }
+  statusMessage += '\n• Click bars to select, drag to move\n';
+  statusMessage += '• Drag corners/edges to resize\n';
+  statusMessage += '• Each column = 1 week';
+
+  SpreadsheetApp.getUi().alert('Timeline Generated', statusMessage, SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+/**
+ * Creates a colored rectangle PNG image
+ * Uses a simple BMP format which is easier to generate than PNG
+ */
+function createColoredRectangleImage(width, height, hexColor) {
+  // Parse hex color
+  const color = hexColor.replace('#', '');
+  const r = parseInt(color.substr(0, 2), 16);
+  const g = parseInt(color.substr(2, 2), 16);
+  const b = parseInt(color.substr(4, 2), 16);
+
+  // Create a simple BMP image (24-bit, no compression)
+  const rowSize = Math.ceil((width * 3) / 4) * 4; // Rows padded to 4-byte boundary
+  const pixelDataSize = rowSize * height;
+  const fileSize = 54 + pixelDataSize; // 54 bytes header + pixel data
+
+  const bmp = [];
+
+  // BMP File Header (14 bytes)
+  bmp.push(0x42, 0x4D); // 'BM' signature
+  bmp.push(fileSize & 0xFF, (fileSize >> 8) & 0xFF, (fileSize >> 16) & 0xFF, (fileSize >> 24) & 0xFF);
+  bmp.push(0, 0, 0, 0); // Reserved
+  bmp.push(54, 0, 0, 0); // Pixel data offset
+
+  // DIB Header (BITMAPINFOHEADER - 40 bytes)
+  bmp.push(40, 0, 0, 0); // Header size
+  bmp.push(width & 0xFF, (width >> 8) & 0xFF, (width >> 16) & 0xFF, (width >> 24) & 0xFF);
+  bmp.push(height & 0xFF, (height >> 8) & 0xFF, (height >> 16) & 0xFF, (height >> 24) & 0xFF);
+  bmp.push(1, 0); // Color planes
+  bmp.push(24, 0); // Bits per pixel
+  bmp.push(0, 0, 0, 0); // Compression (none)
+  bmp.push(pixelDataSize & 0xFF, (pixelDataSize >> 8) & 0xFF, (pixelDataSize >> 16) & 0xFF, (pixelDataSize >> 24) & 0xFF);
+  bmp.push(0x13, 0x0B, 0, 0); // H resolution
+  bmp.push(0x13, 0x0B, 0, 0); // V resolution
+  bmp.push(0, 0, 0, 0); // Colors in palette
+  bmp.push(0, 0, 0, 0); // Important colors
+
+  // Pixel data (bottom-up, BGR format)
+  const padding = rowSize - (width * 3);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      bmp.push(b, g, r); // BGR order
+    }
+    for (let p = 0; p < padding; p++) {
+      bmp.push(0);
+    }
+  }
+
+  // Convert unsigned bytes (0-255) to signed bytes (-128 to 127) for Google Apps Script
+  const signedBytes = bmp.map(function(byte) {
+    return byte > 127 ? byte - 256 : byte;
+  });
+
+  return Utilities.newBlob(signedBytes, 'image/bmp', 'bar.bmp');
+}
+
+/**
+ * Creates a today marker line image (red vertical line)
+ */
+function createTodayLineImage(height) {
+  return createColoredRectangleImage(3, height, '#FF5722');
+}
+
+/**
+ * Gets the ISO week number for a date
+ */
+function getWeekNumber(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+}
+
+/**
+ * Formats date as short string
+ */
+function formatDateShort(date) {
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+/**
+ * Lightens a hex color
+ */
+function lightenColor(hex, amount) {
+  const num = parseInt(hex.replace('#', ''), 16);
+  const r = Math.min(255, Math.floor((num >> 16) + (255 - (num >> 16)) * amount));
+  const g = Math.min(255, Math.floor(((num >> 8) & 0x00FF) + (255 - ((num >> 8) & 0x00FF)) * amount));
+  const b = Math.min(255, Math.floor((num & 0x0000FF) + (255 - (num & 0x0000FF)) * amount));
+  return '#' + (0x1000000 + r * 0x10000 + g * 0x100 + b).toString(16).slice(1);
+}
+
+/**
+ * Darkens a hex color
+ */
+function darkenColor(hex, amount) {
+  const num = parseInt(hex.replace('#', ''), 16);
+  const r = Math.max(0, Math.floor((num >> 16) * (1 - amount)));
+  const g = Math.max(0, Math.floor(((num >> 8) & 0x00FF) * (1 - amount)));
+  const b = Math.max(0, Math.floor((num & 0x0000FF) * (1 - amount)));
+  return '#' + (0x1000000 + r * 0x10000 + g * 0x100 + b).toString(16).slice(1);
+}
+
+/* ============================================================================
+ * OLD CANVAS-BASED TIMELINE GENERATION (COMMENTED OUT)
+ * Keeping this code in case we need to revert
+ * ============================================================================
+
   // Generate chart using HTML template
   const template = HtmlService.createTemplateFromFile('ChartRenderer');
   template.chartData = JSON.stringify(chartData);
@@ -1920,7 +2400,8 @@ function generateTimeline() {
 
   // Show chart generation dialog
   ui.showModalDialog(html, 'Generating Timeline...');
-}
+
+============================================================================ */
 
 /**
  * Prepares tasks for chart rendering
@@ -1930,7 +2411,8 @@ function prepareTasksForChart(tasks, config) {
   let sortedTasks = [...tasks];
 
   if (config.swimlaneGrouping !== 'None') {
-    const groupField = config.swimlaneGrouping === 'Owner' ? 'owner' : 'swimlane';
+    const groupField = config.swimlaneGrouping === 'Owner' ? 'owner' :
+                       config.swimlaneGrouping === 'Project' ? 'project' : 'swimlane';
 
     // Sort by swimlane/group, then by start date
     sortedTasks.sort((a, b) => {
@@ -2036,14 +2518,23 @@ function insertChartImage(imageBlob) {
  */
 function saveChartToSheet(base64Data) {
   try {
-    // Remove data URL prefix if present
-    const base64Content = base64Data.replace(/^data:image\/png;base64,/, '');
+    // Detect image type and remove data URL prefix
+    let mimeType = 'image/png';
+    let filename = 'gantt_chart.png';
+
+    if (base64Data.startsWith('data:image/jpeg')) {
+      mimeType = 'image/jpeg';
+      filename = 'gantt_chart.jpg';
+    }
+
+    // Remove data URL prefix (handles both png and jpeg)
+    const base64Content = base64Data.replace(/^data:image\/(png|jpeg);base64,/, '');
 
     // Create blob from base64
     const blob = Utilities.newBlob(
       Utilities.base64Decode(base64Content),
-      'image/png',
-      'gantt_chart.png'
+      mimeType,
+      filename
     );
 
     // Insert into sheet
@@ -2116,18 +2607,19 @@ function getExportData() {
   }
 
   // Calculate date range
+  // Default: Current date - 1 month to Current date + 2 months
   let startDate = config.startDate ? new Date(config.startDate) : null;
   let endDate = config.endDate ? new Date(config.endDate) : null;
 
   if (!startDate || !endDate) {
-    const dates = tasks.flatMap(t => [t.startDate, t.endDate]).filter(d => d);
+    const today = new Date();
     if (!startDate) {
-      startDate = new Date(Math.min(...dates));
-      startDate.setDate(startDate.getDate() - 7);
+      startDate = new Date(today);
+      startDate.setMonth(startDate.getMonth() - 1);  // 1 month before today
     }
     if (!endDate) {
-      endDate = new Date(Math.max(...dates));
-      endDate.setDate(endDate.getDate() + 7);
+      endDate = new Date(today);
+      endDate.setMonth(endDate.getMonth() + 2);  // 2 months after today
     }
   }
 
@@ -2189,33 +2681,65 @@ function exportTimelineAsPdf() {
     const timelineSheet = ss.getSheetByName(TIMELINE_SHEET_NAME);
 
     if (!timelineSheet) {
-      return { success: false, message: 'No timeline found. Please generate a timeline first.' };
+      return { success: false, message: 'No timeline found. Please generate a timeline first using "Save to Sheet".' };
     }
+
+    // Check if timeline sheet has any images
+    const images = timelineSheet.getImages();
+    if (images.length === 0) {
+      return { success: false, message: 'No chart image found. Please generate a timeline and click "Save to Sheet" first.' };
+    }
+
+    // Flush any pending changes
+    SpreadsheetApp.flush();
 
     // Get spreadsheet ID and sheet ID
     const ssId = ss.getId();
     const sheetId = timelineSheet.getSheetId();
 
-    // Generate PDF export URL
+    // Get the chart dimensions to set proper page size
+    const config = getConfig();
+    const chartWidth = config.chartWidth || 1200;
+    const chartHeight = config.chartHeight || 800;
+
+    // Calculate page size based on chart dimensions (use larger format for bigger charts)
+    let pageSize = 'A4';
+    if (chartWidth > 1400 || chartHeight > 900) {
+      pageSize = 'A3';
+    }
+    if (chartWidth > 2000 || chartHeight > 1400) {
+      pageSize = 'A2';
+    }
+
+    // Generate PDF export URL with proper scaling
     const url = `https://docs.google.com/spreadsheets/d/${ssId}/export?` +
       `format=pdf&` +
       `gid=${sheetId}&` +
-      `size=A4&` +
+      `size=${pageSize}&` +
       `portrait=false&` +
       `fitw=true&` +
+      `fith=true&` +
       `gridlines=false&` +
       `printtitle=false&` +
       `sheetnames=false&` +
       `pagenum=false&` +
-      `fzr=false`;
+      `fzr=false&` +
+      `scale=4`;  // 4 = Fit to width
 
     // Fetch the PDF
     const token = ScriptApp.getOAuthToken();
     const response = UrlFetchApp.fetch(url, {
       headers: {
         'Authorization': 'Bearer ' + token
-      }
+      },
+      muteHttpExceptions: true
     });
+
+    // Check response status
+    const responseCode = response.getResponseCode();
+    if (responseCode !== 200) {
+      return { success: false, message: `PDF export failed (HTTP ${responseCode}). Try using File > Download > PDF from the Timeline View sheet.` };
+    }
 
     // Generate filename
     const timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd_HHmmss');
@@ -2223,6 +2747,12 @@ function exportTimelineAsPdf() {
 
     // Save to Drive
     const blob = response.getBlob().setName(filename);
+
+    // Check if blob is empty
+    if (blob.getBytes().length < 1000) {
+      return { success: false, message: 'PDF appears to be empty. Over-grid images may not export properly. Try: File > Download > PDF from the Timeline View sheet instead.' };
+    }
+
     const file = DriveApp.createFile(blob);
 
     return {
@@ -2231,7 +2761,7 @@ function exportTimelineAsPdf() {
       filename: filename
     };
   } catch (e) {
-    return { success: false, message: 'Error exporting PDF: ' + e.message };
+    return { success: false, message: 'Error exporting PDF: ' + e.message + '. Try using File > Download > PDF from the Timeline View sheet instead.' };
   }
 }
 

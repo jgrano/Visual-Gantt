@@ -186,26 +186,20 @@
     const FONT_SIZE = config.fontSize || 12;
     const HEADER_HEIGHT = 60;
 
-    // Calculate dimensions
+    // Calculate dimensions - fit everything within configured width (no scrolling)
     const totalDays = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24));
-    const chartWidth = Math.max(config.chartWidth || 1200, totalDays * 15);
-    const chartHeight = Math.max(config.chartHeight || 600, MARGIN.top + (tasks.length * ROW_HEIGHT) + MARGIN.bottom + 100);
+    const configuredWidth = config.chartWidth || 1100;
+    const configuredHeight = config.chartHeight || 700;
 
-    // Set canvas size
-    canvas.width = chartWidth + MARGIN.left + MARGIN.right;
-    canvas.height = chartHeight;
+    // Canvas size equals configured size (no margins added - they're internal)
+    const canvasWidth = configuredWidth;
+    const canvasHeight = Math.max(configuredHeight, MARGIN.top + (tasks.length * ROW_HEIGHT) + MARGIN.bottom + 50);
 
-    // High DPI support
-    const dpr = window.devicePixelRatio || 1;
-    canvas.style.width = canvas.width + 'px';
-    canvas.style.height = canvas.height + 'px';
-    canvas.width *= dpr;
-    canvas.height *= dpr;
-    ctx.scale(dpr, dpr);
-
-    // Restore logical dimensions for calculations
-    const canvasWidth = canvas.width / dpr;
-    const canvasHeight = canvas.height / dpr;
+    // Set canvas to 1x resolution (no DPI scaling to avoid pixel limits)
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
+    canvas.style.width = canvasWidth + 'px';
+    canvas.style.height = canvasHeight + 'px';
 
     // Chart area
     const chartArea = {
@@ -287,15 +281,16 @@
     }
 
     function drawTitle() {
+      // Use web-safe fonts that render consistently
       ctx.fillStyle = COLORS.text;
-      ctx.font = `bold 18px 'Segoe UI', sans-serif`;
+      ctx.font = 'bold 20px Arial, Helvetica, sans-serif';
       ctx.textAlign = 'left';
-      ctx.fillText('Project Timeline', MARGIN.left, 30);
+      ctx.fillText('Project Timeline', 20, 35);
 
-      ctx.font = `12px 'Segoe UI', sans-serif`;
+      ctx.font = '13px Arial, Helvetica, sans-serif';
       ctx.fillStyle = COLORS.textLight;
       const dateRange = `${formatDate(startDate)} - ${formatDate(endDate)}`;
-      ctx.fillText(dateRange, MARGIN.left, 50);
+      ctx.fillText(dateRange, 20, 55);
     }
 
     function drawGrid() {
@@ -392,7 +387,8 @@
     }
 
     function drawSwimlanes() {
-      const groupField = config.swimlaneGrouping === 'Owner' ? 'owner' : 'swimlane';
+      const groupField = config.swimlaneGrouping === 'Owner' ? 'owner' :
+                         config.swimlaneGrouping === 'Project' ? 'project' : 'swimlane';
       let currentGroup = null;
       let groupStartIndex = 0;
 
@@ -536,39 +532,61 @@
       tasks.forEach((task, index) => {
         const x = dateToX(task.startDateStr);
         const y = taskToY(index);
-        const width = dateToX(task.endDateStr) - x;
 
-        // Draw original date outline if dates have changed (slip indicator)
-        if (task.hasDateChange && task.taskType !== 'Milestone') {
-          drawOriginalDateOutline(task, y);
+        // Check if task has slipped (current end is after original end)
+        const hasSlip = task.hasDateChange && task.originalEndDateStr &&
+                        new Date(task.endDateStr) > new Date(task.originalEndDateStr);
+
+        // Calculate bar width - use original end if slipped, otherwise current end
+        let barEndDate = task.endDateStr;
+        if (hasSlip) {
+          barEndDate = task.originalEndDateStr;
         }
+        const width = dateToX(barEndDate) - x;
 
         if (task.taskType === 'Milestone') {
           // Draw diamond for milestones
           drawMilestone(x, y + BAR_HEIGHT / 2, task.color);
         } else {
-          // Draw task bar
+          // Draw task bar (to original end if slipped)
           drawTaskBar(x, y, Math.max(width, 4), task);
+
+          // Draw slip extension AFTER the main bar
+          if (hasSlip) {
+            drawSlipExtension(task, y);
+          }
         }
       });
     }
 
-    function drawOriginalDateOutline(task, y) {
-      // Determine the original date range to draw
-      const origStartDate = task.originalStartDateStr || task.startDateStr;
-      const origEndDate = task.originalEndDateStr || task.endDateStr;
+    function drawSlipExtension(task, y) {
+      // Draw dashed extension from original end to current end (slip visualization)
+      const origEndX = dateToX(task.originalEndDateStr);
+      const currentEndX = dateToX(task.endDateStr);
+      const barCenterY = y + BAR_HEIGHT / 2;
 
-      const origX = dateToX(origStartDate);
-      const origWidth = dateToX(origEndDate) - origX;
-      const radius = 4;
+      // Draw horizontal dashed line from original end to current end
+      ctx.strokeStyle = task.color;
+      ctx.lineWidth = 3;
+      ctx.setLineDash([8, 4]);  // Dashed line pattern
 
-      // Draw dashed outline for the original date range
-      ctx.strokeStyle = COLORS.dateSlip;
-      ctx.lineWidth = 2;
-      ctx.setLineDash([4, 3]);  // Dashed line pattern
-
-      roundRect(ctx, origX, y, Math.max(origWidth, 4), BAR_HEIGHT, radius);
+      ctx.beginPath();
+      ctx.moveTo(origEndX, barCenterY);
+      ctx.lineTo(currentEndX - 8, barCenterY);
       ctx.stroke();
+
+      // Draw end cap - vertical dashed bar
+      ctx.beginPath();
+      ctx.moveTo(currentEndX, y + 2);
+      ctx.lineTo(currentEndX, y + BAR_HEIGHT - 2);
+      ctx.stroke();
+
+      // Draw small circle at the end
+      ctx.setLineDash([]);  // Solid for circle
+      ctx.fillStyle = task.color;
+      ctx.beginPath();
+      ctx.arc(currentEndX - 4, barCenterY, 4, 0, Math.PI * 2);
+      ctx.fill();
 
       ctx.setLineDash([]);  // Reset to solid lines
     }
@@ -643,34 +661,55 @@
     }
 
     function drawTaskLabels() {
+      const PROJECT_COL_WIDTH = 80;  // Width for Project column
+      const taskNameX = PROJECT_COL_WIDTH + 10;  // Start of task name column
+
       ctx.fillStyle = '#FAFAFA';
       ctx.fillRect(0, chartArea.y, MARGIN.left - 10, tasks.length * ROW_HEIGHT);
 
+      // Draw column header separator
+      ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(PROJECT_COL_WIDTH, chartArea.y);
+      ctx.lineTo(PROJECT_COL_WIDTH, chartArea.y + (tasks.length * ROW_HEIGHT));
+      ctx.stroke();
+
       tasks.forEach((task, index) => {
         const y = taskToY(index) + BAR_HEIGHT / 2 + 4;
-        const x = task.isSubtask ? 45 : 30;
 
-        // Task name
+        // Project column (left side)
+        if (task.project) {
+          ctx.fillStyle = COLORS.text;
+          ctx.font = `bold ${FONT_SIZE - 1}px 'Segoe UI', sans-serif`;
+          ctx.textAlign = 'left';
+          const projectDisplay = truncateText(task.project, PROJECT_COL_WIDTH - 15);
+          ctx.fillText(projectDisplay, 8, y);
+        }
+
+        // Task name column
+        const nameX = task.isSubtask ? taskNameX + 15 : taskNameX;
         ctx.fillStyle = COLORS.text;
         ctx.font = `${task.isSubtask ? '' : 'bold '}${FONT_SIZE}px 'Segoe UI', sans-serif`;
         ctx.textAlign = 'left';
 
-        const maxWidth = MARGIN.left - x - 20;
-        const displayName = truncateText(task.name, maxWidth);
-        ctx.fillText(displayName, x, y);
+        const maxNameWidth = MARGIN.left - nameX - 15;
+        const displayName = truncateText(task.name, maxNameWidth);
+        ctx.fillText(displayName, nameX, y);
 
-        // Owner (if space permits)
+        // Owner (below task name, if space permits)
         if (task.owner && !task.isSubtask) {
-          ctx.fillStyle = COLORS.textLight;
           ctx.font = `${FONT_SIZE - 2}px 'Segoe UI', sans-serif`;
           const ownerY = y + 12;
+
           if (ownerY < taskToY(index + 1)) {
-            ctx.fillText(task.owner, x, ownerY);
+            ctx.fillStyle = COLORS.textLight;
+            ctx.fillText(task.owner, nameX, ownerY);
           }
         }
       });
 
-      // Separator line
+      // Separator line (right edge of label area)
       ctx.strokeStyle = COLORS.grid;
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -749,10 +788,13 @@
         html += '<div class="legend-item"><div class="legend-color" style="background:linear-gradient(90deg,rgba(255,255,255,0.4) 50%,#2196F3 50%)"></div>% Complete</div>';
       }
 
-      // Date slip indicator (show if any tasks have date changes)
-      const hasDateChanges = tasks.some(task => task.hasDateChange);
-      if (hasDateChanges) {
-        html += '<div class="legend-item"><div class="legend-color" style="background:transparent;border:2px dashed #888888;"></div>Original Dates</div>';
+      // Date slip indicator (show if any tasks have slipped)
+      const hasSlippedTasks = tasks.some(task =>
+        task.hasDateChange && task.originalEndDateStr &&
+        new Date(task.endDateStr) > new Date(task.originalEndDateStr)
+      );
+      if (hasSlippedTasks) {
+        html += '<div class="legend-item"><div class="legend-color" style="background:transparent;border:none;position:relative;"><span style="display:block;border-top:3px dashed #E53935;width:100%;position:absolute;top:50%;"></span></div>Schedule Slip</div>';
       }
 
       legendEl.innerHTML = html;
@@ -767,8 +809,19 @@
       document.getElementById('status').textContent = 'Saving to sheet...';
       document.getElementById('status').className = 'status info';
 
-      // Get canvas as base64
-      const dataUrl = canvas.toDataURL('image/png');
+      // Canvas is already at 1x resolution, so save directly
+      // Google Sheets has a 1 million pixel and 2MB limit
+      const totalPixels = canvas.width * canvas.height;
+      if (totalPixels > 950000) {
+        document.getElementById('status').textContent = 'Chart too large. Please reduce chart size in Settings.';
+        document.getElementById('status').className = 'status error';
+        btn.disabled = false;
+        btn.textContent = 'Save to Sheet';
+        return;
+      }
+
+      // Get as high-quality JPEG
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
 
       google.script.run
         .withSuccessHandler(function(result) {

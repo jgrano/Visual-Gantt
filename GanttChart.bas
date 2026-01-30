@@ -1,0 +1,531 @@
+Attribute VB_Name = "GanttChart"
+'===============================================================================
+' Visual Gantt - Excel VBA Timeline Generator
+' Creates professional Gantt chart with draggable/resizable shapes
+'===============================================================================
+
+Option Explicit
+
+' Constants
+Private Const DATA_SHEET_NAME As String = "Project Data"
+Private Const TIMELINE_SHEET_NAME As String = "Timeline View"
+Private Const HEADER_ROWS As Integer = 3
+Private Const LABEL_COLS As Integer = 3
+Private Const WEEK_COL_WIDTH As Double = 11
+Private Const TASK_ROW_HEIGHT As Double = 36
+Private Const BAR_HEIGHT As Double = 22
+Private Const BAR_TOP_MARGIN As Double = 7
+
+' Column indices in Project Data (1-based)
+Private Const COL_TASK_ID As Integer = 1
+Private Const COL_TASK_NAME As Integer = 2
+Private Const COL_START_DATE As Integer = 3
+Private Const COL_END_DATE As Integer = 4
+Private Const COL_OWNER As Integer = 6
+Private Const COL_PERCENT As Integer = 7
+Private Const COL_PROJECT As Integer = 14
+Private Const COL_ORIG_END As Integer = 16
+
+' Colors for alternating rows
+Private Const ROW_COLOR_1 As Long = 16777215  ' White
+Private Const ROW_COLOR_2 As Long = 15921906  ' Light gray #F2F2F2
+
+'===============================================================================
+' Main Entry Point
+'===============================================================================
+Public Sub GenerateTimeline()
+    Dim wsData As Worksheet
+    Dim wsTimeline As Worksheet
+    Dim startDate As Date
+    Dim endDate As Date
+    Dim totalWeeks As Integer
+    Dim lastRow As Long
+    Dim barsCreated As Integer
+
+    On Error GoTo ErrorHandler
+
+    Application.ScreenUpdating = False
+    Application.Calculation = xlCalculationManual
+
+    Set wsData = GetDataSheet()
+    If wsData Is Nothing Then
+        MsgBox "Could not find '" & DATA_SHEET_NAME & "' sheet.", vbExclamation
+        GoTo Cleanup
+    End If
+
+    Set wsTimeline = GetOrCreateTimelineSheet()
+
+    ' Date range: -1 month to +3 months
+    startDate = DateSerial(Year(Date), Month(Date) - 1, 1)
+    endDate = DateSerial(Year(Date), Month(Date) + 3, 0)
+    totalWeeks = Int((endDate - startDate) / 7) + 1
+
+    ' Clear existing
+    wsTimeline.Cells.Clear
+    ClearAllShapes wsTimeline
+
+    ' Hide gridlines
+    wsTimeline.Activate
+    ActiveWindow.DisplayGridlines = False
+
+    ' Setup
+    SetupTimelineLayout wsTimeline, totalWeeks
+    BuildHeaders wsTimeline, startDate, endDate, totalWeeks
+
+    lastRow = wsData.Cells(wsData.Rows.Count, COL_TASK_NAME).End(xlUp).Row
+    If lastRow < 2 Then
+        MsgBox "No tasks found.", vbInformation
+        GoTo Cleanup
+    End If
+
+    barsCreated = BuildTaskBars(wsData, wsTimeline, startDate, endDate, totalWeeks, lastRow)
+    AddTodayMarker wsTimeline, startDate, totalWeeks, lastRow - 1
+    AddChartBorder wsTimeline, lastRow - 1, totalWeeks
+
+    ' Freeze panes
+    wsTimeline.Range("D4").Select
+    ActiveWindow.FreezePanes = True
+
+    MsgBox "Timeline Generated!" & vbCrLf & vbCrLf & _
+           "Task bars created: " & barsCreated & " of " & (lastRow - 1), vbInformation
+
+Cleanup:
+    Application.ScreenUpdating = True
+    Application.Calculation = xlCalculationAutomatic
+    Exit Sub
+
+ErrorHandler:
+    MsgBox "Error: " & Err.Description, vbCritical
+    Resume Cleanup
+End Sub
+
+'===============================================================================
+Private Function GetDataSheet() As Worksheet
+    On Error Resume Next
+    Set GetDataSheet = ThisWorkbook.Worksheets(DATA_SHEET_NAME)
+    On Error GoTo 0
+End Function
+
+'===============================================================================
+Private Function GetOrCreateTimelineSheet() As Worksheet
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets(TIMELINE_SHEET_NAME)
+    On Error GoTo 0
+    If ws Is Nothing Then
+        Set ws = ThisWorkbook.Worksheets.Add(After:=ThisWorkbook.Worksheets(1))
+        ws.Name = TIMELINE_SHEET_NAME
+    End If
+    Set GetOrCreateTimelineSheet = ws
+End Function
+
+'===============================================================================
+Private Sub ClearAllShapes(ws As Worksheet)
+    Dim shp As Shape
+    On Error Resume Next
+    For Each shp In ws.Shapes
+        shp.Delete
+    Next shp
+    On Error GoTo 0
+End Sub
+
+'===============================================================================
+Private Sub SetupTimelineLayout(ws As Worksheet, totalWeeks As Integer)
+    Dim i As Integer
+
+    ' White background everywhere
+    ws.Cells.Interior.Color = RGB(255, 255, 255)
+
+    ' Column widths
+    ws.Columns(1).ColumnWidth = 14  ' Project
+    ws.Columns(2).ColumnWidth = 34  ' Task Name
+    ws.Columns(3).ColumnWidth = 26  ' Owner
+
+    For i = 1 To totalWeeks
+        ws.Columns(LABEL_COLS + i).ColumnWidth = WEEK_COL_WIDTH
+    Next i
+
+    ' Row heights
+    ws.Rows(1).RowHeight = 32
+    ws.Rows(2).RowHeight = 24
+    ws.Rows(3).RowHeight = 22
+End Sub
+
+'===============================================================================
+Private Sub BuildHeaders(ws As Worksheet, startDate As Date, endDate As Date, totalWeeks As Integer)
+    Dim i As Integer
+    Dim weekStart As Date
+    Dim fridayDate As Date
+    Dim currentMonth As String
+    Dim monthStartCol As Integer
+    Dim prevMonth As String
+
+    ' Title - merged across first two columns
+    ws.Range("A1:B1").Merge
+    ws.Range("A1").Value = "Project Timeline"
+    ws.Range("A1").Font.Size = 18
+    ws.Range("A1").Font.Bold = True
+    ws.Range("A1").VerticalAlignment = xlCenter
+
+    ' Date range
+    ws.Cells(1, 3).Value = Format(startDate, "mmmm d, yyyy") & " - " & Format(endDate, "mmmm d, yyyy")
+    ws.Cells(1, 3).Font.Color = RGB(102, 102, 102)
+    ws.Cells(1, 3).Font.Size = 11
+
+    ' Column headers - 12pt font
+    ws.Cells(2, 1).Value = "Project"
+    ws.Cells(2, 1).Font.Size = 12
+    ws.Cells(2, 1).Font.Bold = True
+
+    ws.Cells(2, 2).Value = "Task"
+    ws.Cells(2, 2).Font.Size = 12
+    ws.Cells(2, 2).Font.Bold = True
+
+    ws.Cells(2, 3).Value = "Owner"
+    ws.Cells(2, 3).Font.Size = 12
+    ws.Cells(2, 3).Font.Bold = True
+    ws.Cells(2, 3).WrapText = True
+
+    ws.Range("A2:C3").Interior.Color = RGB(248, 249, 250)
+
+    ' Week headers
+    prevMonth = ""
+    monthStartCol = LABEL_COLS + 1
+
+    For i = 0 To totalWeeks - 1
+        weekStart = DateAdd("d", i * 7, startDate)
+        ' Friday of this week
+        fridayDate = weekStart + (5 - Weekday(weekStart, vbMonday))
+        If fridayDate < weekStart Then fridayDate = fridayDate + 7
+
+        currentMonth = Format(weekStart, "mmmm, yyyy")
+
+        ' DD/MM of Friday
+        ws.Cells(3, LABEL_COLS + 1 + i).Value = Format(fridayDate, "dd/mm")
+        ws.Cells(3, LABEL_COLS + 1 + i).HorizontalAlignment = xlCenter
+        ws.Cells(3, LABEL_COLS + 1 + i).Font.Size = 9
+        ws.Cells(3, LABEL_COLS + 1 + i).Interior.Color = RGB(232, 240, 254)
+
+        ' Month tracking
+        If currentMonth <> prevMonth Then
+            If prevMonth <> "" And LABEL_COLS + i > monthStartCol Then
+                ws.Range(ws.Cells(2, monthStartCol), ws.Cells(2, LABEL_COLS + i)).Merge
+                ws.Cells(2, monthStartCol).Value = prevMonth
+                ws.Cells(2, monthStartCol).HorizontalAlignment = xlCenter
+                ws.Cells(2, monthStartCol).Interior.Color = RGB(66, 133, 244)
+                ws.Cells(2, monthStartCol).Font.Color = RGB(255, 255, 255)
+                ws.Cells(2, monthStartCol).Font.Bold = True
+                ws.Cells(2, monthStartCol).Font.Size = 11
+            End If
+            monthStartCol = LABEL_COLS + 1 + i
+            prevMonth = currentMonth
+        End If
+    Next i
+
+    ' Last month
+    If LABEL_COLS + totalWeeks >= monthStartCol Then
+        ws.Range(ws.Cells(2, monthStartCol), ws.Cells(2, LABEL_COLS + totalWeeks)).Merge
+    End If
+    ws.Cells(2, monthStartCol).Value = prevMonth
+    ws.Cells(2, monthStartCol).HorizontalAlignment = xlCenter
+    ws.Cells(2, monthStartCol).Interior.Color = RGB(66, 133, 244)
+    ws.Cells(2, monthStartCol).Font.Color = RGB(255, 255, 255)
+    ws.Cells(2, monthStartCol).Font.Bold = True
+    ws.Cells(2, monthStartCol).Font.Size = 11
+
+    ' Header borders
+    ws.Range(ws.Cells(2, 1), ws.Cells(3, LABEL_COLS + totalWeeks)).Borders.LineStyle = xlContinuous
+    ws.Range(ws.Cells(2, 1), ws.Cells(3, LABEL_COLS + totalWeeks)).Borders.Color = RGB(200, 200, 200)
+    ws.Range(ws.Cells(2, 1), ws.Cells(3, LABEL_COLS + totalWeeks)).Borders.Weight = xlThin
+End Sub
+
+'===============================================================================
+Private Function BuildTaskBars(wsData As Worksheet, wsTimeline As Worksheet, _
+                                startDate As Date, endDate As Date, _
+                                totalWeeks As Integer, lastRow As Long) As Integer
+    Dim i As Long, row As Integer
+    Dim taskName As String, owner As String, project As String
+    Dim taskStart As Variant, taskEnd As Variant, origEnd As Variant
+    Dim percentComplete As Double
+    Dim barsCreated As Integer
+    Dim barColor As Long
+    Dim startWeek As Double, endWeek As Double
+    Dim clippedStart As Double, clippedEnd As Double
+    Dim barLeft As Double, barWidth As Double, barTop As Double
+    Dim shp As Shape, progressShp As Shape, slipShp As Shape, termShp As Shape
+    Dim colWidth As Double, baseLeft As Double
+    Dim origEndWeek As Double, mainBarWidth As Double
+    Dim slipLeft As Double, slipWidth As Double, progressWidth As Double
+    Dim hasSlip As Boolean
+
+    barsCreated = 0
+    baseLeft = wsTimeline.Cells(HEADER_ROWS + 1, LABEL_COLS + 1).Left
+    colWidth = wsTimeline.Columns(LABEL_COLS + 1).Width
+    If colWidth < 10 Then colWidth = 50
+
+    For i = 2 To lastRow
+        row = HEADER_ROWS + (i - 1)
+        wsTimeline.Rows(row).RowHeight = TASK_ROW_HEIGHT
+
+        taskName = "" & wsData.Cells(i, COL_TASK_NAME).Value
+        project = "" & wsData.Cells(i, COL_PROJECT).Value
+        owner = "" & wsData.Cells(i, COL_OWNER).Value
+        taskStart = wsData.Cells(i, COL_START_DATE).Value
+        taskEnd = wsData.Cells(i, COL_END_DATE).Value
+        origEnd = wsData.Cells(i, COL_ORIG_END).Value
+
+        On Error Resume Next
+        percentComplete = Val(wsData.Cells(i, COL_PERCENT).Value)
+        On Error GoTo 0
+
+        ' Labels - 12pt font
+        wsTimeline.Cells(row, 1).Value = project
+        wsTimeline.Cells(row, 1).Font.Size = 12
+        wsTimeline.Cells(row, 1).VerticalAlignment = xlCenter
+
+        wsTimeline.Cells(row, 2).Value = taskName
+        wsTimeline.Cells(row, 2).Font.Bold = True
+        wsTimeline.Cells(row, 2).Font.Size = 12
+        wsTimeline.Cells(row, 2).VerticalAlignment = xlCenter
+
+        wsTimeline.Cells(row, 3).Value = owner
+        wsTimeline.Cells(row, 3).Font.Color = RGB(102, 102, 102)
+        wsTimeline.Cells(row, 3).Font.Size = 12
+        wsTimeline.Cells(row, 3).WrapText = True
+        wsTimeline.Cells(row, 3).VerticalAlignment = xlCenter
+
+        ' Alternate row colors
+        If (i Mod 2) = 0 Then
+            wsTimeline.Range(wsTimeline.Cells(row, 1), wsTimeline.Cells(row, LABEL_COLS + totalWeeks)).Interior.Color = ROW_COLOR_2
+        Else
+            wsTimeline.Range(wsTimeline.Cells(row, 1), wsTimeline.Cells(row, LABEL_COLS + totalWeeks)).Interior.Color = ROW_COLOR_1
+        End If
+
+        ' Row border
+        wsTimeline.Range(wsTimeline.Cells(row, 1), wsTimeline.Cells(row, LABEL_COLS + totalWeeks)).Borders(xlEdgeBottom).LineStyle = xlContinuous
+        wsTimeline.Range(wsTimeline.Cells(row, 1), wsTimeline.Cells(row, LABEL_COLS + totalWeeks)).Borders(xlEdgeBottom).Color = RGB(230, 230, 230)
+
+        If IsEmpty(taskStart) Or IsEmpty(taskEnd) Then GoTo NextTask
+        If Not IsDate(taskStart) Or Not IsDate(taskEnd) Then GoTo NextTask
+
+        startWeek = (CDate(taskStart) - startDate) / 7
+        endWeek = (CDate(taskEnd) - startDate) / 7
+
+        If endWeek <= 0 Or startWeek >= totalWeeks Then GoTo NextTask
+
+        clippedStart = IIf(startWeek < 0, 0, startWeek)
+        clippedEnd = IIf(endWeek > totalWeeks, totalWeeks, endWeek)
+
+        If clippedEnd <= clippedStart Then GoTo NextTask
+
+        ' Check slip
+        hasSlip = False
+        origEndWeek = clippedEnd
+        If Not IsEmpty(origEnd) And IsDate(origEnd) Then
+            If CDate(taskEnd) > CDate(origEnd) Then
+                hasSlip = True
+                origEndWeek = (CDate(origEnd) - startDate) / 7
+                If origEndWeek < clippedStart Then origEndWeek = clippedStart
+                If origEndWeek > clippedEnd Then origEndWeek = clippedEnd
+            End If
+        End If
+
+        barLeft = baseLeft + (clippedStart * colWidth)
+        barTop = wsTimeline.Cells(row, 1).Top + BAR_TOP_MARGIN
+        barColor = GetProjectColor(project)
+
+        ' Main bar width (excluding slip)
+        If hasSlip Then
+            mainBarWidth = (origEndWeek - clippedStart) * colWidth
+        Else
+            mainBarWidth = (clippedEnd - clippedStart) * colWidth
+        End If
+        If mainBarWidth < 15 Then mainBarWidth = 15
+
+        ' Create main bar
+        On Error Resume Next
+        Set shp = wsTimeline.Shapes.AddShape(msoShapeRoundedRectangle, barLeft, barTop, mainBarWidth, BAR_HEIGHT)
+        If Err.Number <> 0 Then
+            Err.Clear
+            GoTo NextTask
+        End If
+        On Error GoTo 0
+
+        shp.Fill.ForeColor.RGB = barColor
+        shp.Line.ForeColor.RGB = DarkenColor(barColor, 0.2)
+        shp.Line.Weight = 1
+
+        ' Progress indicator (darker portion)
+        If percentComplete > 0 And percentComplete <= 100 Then
+            progressWidth = mainBarWidth * (percentComplete / 100)
+            If progressWidth >= 5 Then
+                On Error Resume Next
+                Set progressShp = wsTimeline.Shapes.AddShape(msoShapeRoundedRectangle, barLeft, barTop, progressWidth, BAR_HEIGHT)
+                If Err.Number = 0 And Not progressShp Is Nothing Then
+                    progressShp.Fill.ForeColor.RGB = DarkenColor(barColor, 0.15)
+                    progressShp.Line.Visible = msoFalse
+                End If
+                Err.Clear
+                On Error GoTo 0
+
+                ' Percentage text - 14pt
+                If mainBarWidth > 40 Then
+                    On Error Resume Next
+                    shp.TextFrame2.TextRange.Text = CInt(percentComplete) & "%"
+                    shp.TextFrame2.TextRange.Font.Size = 14
+                    shp.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = RGB(255, 255, 255)
+                    shp.TextFrame2.TextRange.Font.Bold = msoTrue
+                    shp.TextFrame2.TextRange.ParagraphFormat.Alignment = msoAlignCenter
+                    shp.TextFrame2.VerticalAnchor = msoAnchorMiddle
+                    On Error GoTo 0
+                End If
+            End If
+        End If
+
+        ' Slip indicator (dashed + termination)
+        If hasSlip And clippedEnd > origEndWeek Then
+            slipLeft = baseLeft + (origEndWeek * colWidth)
+            slipWidth = (clippedEnd - origEndWeek) * colWidth
+
+            If slipWidth > 3 Then
+                On Error Resume Next
+                Set slipShp = wsTimeline.Shapes.AddShape(msoShapeRoundedRectangle, slipLeft, barTop, slipWidth, BAR_HEIGHT)
+                If Err.Number = 0 And Not slipShp Is Nothing Then
+                    slipShp.Fill.ForeColor.RGB = LightenColor(barColor, 0.6)
+                    slipShp.Line.ForeColor.RGB = barColor
+                    slipShp.Line.Weight = 2
+                    slipShp.Line.DashStyle = msoLineDash
+
+                    ' Termination bar
+                    Set termShp = wsTimeline.Shapes.AddShape(msoShapeRectangle, slipLeft + slipWidth - 3, barTop, 3, BAR_HEIGHT)
+                    If Not termShp Is Nothing Then
+                        termShp.Fill.ForeColor.RGB = barColor
+                        termShp.Line.Visible = msoFalse
+                    End If
+                End If
+                Err.Clear
+                On Error GoTo 0
+            End If
+        End If
+
+        barsCreated = barsCreated + 1
+
+NextTask:
+    Next i
+
+    BuildTaskBars = barsCreated
+End Function
+
+'===============================================================================
+Private Sub AddTodayMarker(ws As Worksheet, startDate As Date, totalWeeks As Integer, taskCount As Long)
+    Dim todayWeek As Double
+    Dim markerLeft As Double, markerTop As Double, markerHeight As Double
+    Dim shp As Shape
+    Dim colWidth As Double, baseLeft As Double
+
+    On Error Resume Next
+
+    todayWeek = (Date - startDate) / 7
+
+    If todayWeek >= 0 And todayWeek < totalWeeks Then
+        baseLeft = ws.Cells(HEADER_ROWS + 1, LABEL_COLS + 1).Left
+        colWidth = ws.Columns(LABEL_COLS + 1).Width
+        If colWidth < 10 Then colWidth = 50
+
+        markerLeft = baseLeft + (todayWeek * colWidth)
+        markerTop = ws.Cells(HEADER_ROWS + 1, 1).Top
+        markerHeight = taskCount * TASK_ROW_HEIGHT
+
+        If markerHeight > 0 And markerLeft > 0 Then
+            Set shp = ws.Shapes.AddShape(msoShapeRectangle, markerLeft, markerTop, 2, markerHeight)
+            If Not shp Is Nothing Then
+                shp.Fill.ForeColor.RGB = RGB(255, 87, 34)
+                shp.Line.Visible = msoFalse
+            End If
+        End If
+
+        ' Today label
+        Dim weekCol As Integer
+        weekCol = LABEL_COLS + 1 + Int(todayWeek)
+        If weekCol > 0 Then
+            ws.Cells(3, weekCol).Font.Color = RGB(255, 87, 34)
+            ws.Cells(3, weekCol).Font.Bold = True
+        End If
+    End If
+
+    On Error GoTo 0
+End Sub
+
+'===============================================================================
+Private Sub AddChartBorder(ws As Worksheet, taskCount As Long, totalWeeks As Integer)
+    Dim lastRow As Integer, lastCol As Integer
+    Dim chartRange As Range
+
+    lastRow = HEADER_ROWS + taskCount
+    lastCol = LABEL_COLS + totalWeeks
+
+    ' Empty border row/column
+    ws.Rows(lastRow + 1).RowHeight = 6
+    ws.Columns(lastCol + 1).ColumnWidth = 1
+    ws.Rows(lastRow + 1).Interior.Color = RGB(255, 255, 255)
+    ws.Columns(lastCol + 1).Interior.Color = RGB(255, 255, 255)
+
+    ' Outer border
+    Set chartRange = ws.Range(ws.Cells(1, 1), ws.Cells(lastRow + 1, lastCol + 1))
+    With chartRange.Borders(xlEdgeLeft)
+        .LineStyle = xlContinuous
+        .Color = RGB(180, 180, 180)
+        .Weight = xlThin
+    End With
+    With chartRange.Borders(xlEdgeTop)
+        .LineStyle = xlContinuous
+        .Color = RGB(180, 180, 180)
+        .Weight = xlThin
+    End With
+    With chartRange.Borders(xlEdgeRight)
+        .LineStyle = xlContinuous
+        .Color = RGB(180, 180, 180)
+        .Weight = xlThin
+    End With
+    With chartRange.Borders(xlEdgeBottom)
+        .LineStyle = xlContinuous
+        .Color = RGB(180, 180, 180)
+        .Weight = xlThin
+    End With
+End Sub
+
+'===============================================================================
+Private Function GetProjectColor(project As String) As Long
+    Dim p As String
+    p = LCase(Trim(project))
+
+    If InStr(p, "c1") > 0 Or InStr(p, "all products") > 0 Then
+        GetProjectColor = RGB(66, 133, 244)
+    ElseIf InStr(p, "v2g") > 0 Then
+        GetProjectColor = RGB(251, 188, 5)
+    ElseIf InStr(p, "vue") > 0 Then
+        GetProjectColor = RGB(234, 67, 53)
+    ElseIf InStr(p, "cm") > 0 Or InStr(p, "transfer") > 0 Then
+        GetProjectColor = RGB(156, 39, 176)
+    Else
+        GetProjectColor = RGB(74, 101, 114)
+    End If
+End Function
+
+'===============================================================================
+Private Function DarkenColor(baseColor As Long, amount As Double) As Long
+    Dim r As Integer, g As Integer, b As Integer
+    r = baseColor Mod 256
+    g = (baseColor \ 256) Mod 256
+    b = (baseColor \ 65536) Mod 256
+    DarkenColor = RGB(Int(r * (1 - amount)), Int(g * (1 - amount)), Int(b * (1 - amount)))
+End Function
+
+'===============================================================================
+Private Function LightenColor(baseColor As Long, amount As Double) As Long
+    Dim r As Integer, g As Integer, b As Integer
+    r = baseColor Mod 256
+    g = (baseColor \ 256) Mod 256
+    b = (baseColor \ 65536) Mod 256
+    LightenColor = RGB(Int(r + (255 - r) * amount), Int(g + (255 - g) * amount), Int(b + (255 - b) * amount))
+End Function
